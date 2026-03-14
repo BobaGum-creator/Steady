@@ -1,7 +1,7 @@
 # Steady — Project Reference
 
 Quick-reference doc for maintaining context across sessions.
-Last updated: 2026-03-13 (V6)
+Last updated: 2026-03-13 (V6.1)
 
 ---
 
@@ -27,6 +27,18 @@ The app has two doors:
 | **Relief** | Calm the system reactively | When stressed | Signal grid + Emergency Calm |
 
 Training builds the skill. Relief applies it. Both reinforce each other.
+
+### Relief Flow (V6.1)
+
+When a user taps a signal card ("Racing Mind", "Tight Body", etc.), the app scores all relief-mode exercises against that signal using signal match, personal effectiveness history, and evidence level — then shows an inline recommendation card with a Start button. This replaced the old generic recommendation engine.
+
+### Library Modes (V6.1)
+
+The exercise library now has Training and Relief filter pills alongside the category filters. These map to the `mode` property on each exercise (`'training'`, `'relief'`, `'both'`).
+
+### Onboarding (V6.1)
+
+Three-step flow: mission welcome → preferred modalities → goals. Framed around training ("Train your nervous system to handle stress better") rather than the old relief-first "What stresses you?".
 
 ---
 

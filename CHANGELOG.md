@@ -5,6 +5,31 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ---
 
+## [6.1.0] — 2026-03-13
+
+### Added — MVP Completion
+- **Signal-to-exercise relief flow**: Tapping a signal card now shows an inline exercise recommendation with Start button, scored by signal match, personal effectiveness data, and evidence level
+- **Library mode filters**: New "Training" and "Relief" pills filter exercises by their mode tag
+- **Practice-focused Progress view**: Stats grid now shows Practice Streak, This Week, Training (30-day count), and Longest Streak instead of generic session data
+- **Relief recommendation engine**: `getReliefRecommendation(signalId)` replaces the old generic recommendation system
+
+### Changed
+- **Onboarding reframed**: Reduced from 4 steps to 3; new mission-first welcome step ("Train your nervous system to handle stress better"), removed stressor selection
+- **Reminder notifications**: Messages updated to training-first tone ("Time for today's practice")
+- **Share progress image**: Colors updated to match V5.1 palette, stats show practice streak instead of generic streak
+- **Today status**: Simplified to just show session count (streak info lives on practice card)
+
+### Fixed
+- Empty icon divs in recent exercises, history items, and most-helpful cards — replaced with category-colored indicator bars
+- Text checkmark in post-exercise completion screen replaced with SVG
+- History items now have proper gap/flex layout with colored indicators
+
+### Removed
+- Dead `getRecommendation()` and `showRecommendation()` functions (~80 lines)
+- Stale `recommendation-card` references
+
+---
+
 ## [6.0.0] — 2026-03-13
 
 ### Added — Two-Mode System (Training + Relief)

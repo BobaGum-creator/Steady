@@ -1524,13 +1524,24 @@ button:active {
 
 .history-item {
   display: flex;
-  justify-content: space-between;
   align-items: center;
+  gap: var(--space-sm);
   padding: var(--space-base);
   background-color: var(--bg-card);
   border: 1px solid var(--border);
   border-radius: var(--border-radius-md);
   margin-bottom: var(--space-sm);
+}
+
+.history-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.history-stress {
+  white-space: nowrap;
+  font-size: var(--font-size-sm);
+  color: var(--text-secondary);
 }
 
 .history-item-left {
@@ -2985,6 +2996,100 @@ select {
 .relief-section .quick-actions {
   padding-top: 0;
 }
+
+/* ============================================================================
+   25. V6 RELIEF RECOMMENDATION (inline card on signal tap)
+   ============================================================================ */
+
+.relief-recommendation {
+  margin-bottom: var(--space-base);
+}
+
+.relief-rec-card {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  background-color: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--border-radius-md);
+  padding: var(--space-sm) var(--space-md);
+  cursor: pointer;
+  transition: border-color 0.15s ease;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+}
+
+.relief-rec-card:hover {
+  border-color: var(--accent);
+}
+
+.relief-rec-indicator {
+  width: 4px;
+  min-width: 4px;
+  align-self: stretch;
+  border-radius: 2px;
+  background-color: var(--accent);
+  opacity: 0.6;
+}
+
+.relief-rec-indicator[data-category="breathwork"] { background-color: var(--accent); }
+.relief-rec-indicator[data-category="body"] { background-color: var(--warning); }
+.relief-rec-indicator[data-category="mind"] { background-color: var(--text-secondary); }
+.relief-rec-indicator[data-category="quick"] { background-color: var(--danger); }
+
+.relief-rec-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.relief-rec-title {
+  font-weight: 600;
+  color: var(--text-primary);
+  font-size: var(--font-size-base);
+}
+
+.relief-rec-meta {
+  color: var(--text-secondary);
+  font-size: var(--font-size-sm);
+  margin-top: 2px;
+}
+
+.btn-small {
+  padding: 6px 14px;
+  font-size: var(--font-size-sm);
+  white-space: nowrap;
+}
+
+/* ============================================================================
+   26. CATEGORY-COLORED INDICATORS (recent, history, helpful)
+   ============================================================================ */
+
+.recent-indicator,
+.history-indicator,
+.helpful-indicator {
+  width: 4px;
+  min-width: 4px;
+  align-self: stretch;
+  border-radius: 2px;
+  background-color: var(--accent);
+  opacity: 0.6;
+}
+
+/* Category color mapping via data-category on parent */
+[data-category="breathwork"] > .recent-indicator,
+[data-category="breathwork"] > .history-indicator,
+[data-category="breathwork"] > .helpful-indicator { background-color: var(--accent); }
+
+[data-category="body"] > .recent-indicator,
+[data-category="body"] > .history-indicator,
+[data-category="body"] > .helpful-indicator { background-color: var(--warning); }
+
+[data-category="mind"] > .recent-indicator,
+[data-category="mind"] > .history-indicator,
+[data-category="mind"] > .helpful-indicator { background-color: var(--text-secondary); }
+
+[data-category="quick"] > .recent-indicator,
+[data-category="quick"] > .history-indicator,
+[data-category="quick"] > .helpful-indicator { background-color: var(--danger); }
 
 /* ============================================================================
    End of Stylesheet

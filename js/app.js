@@ -8,7 +8,7 @@
  * V5: Insight cards, signal history chart, exercise report card, smart defaults, weekly summary.
  */
 
-import { exercises, getExercise, getExercisesByCategory, getTrainingExercises, categories } from './data.js';
+import { exercises, getExercise, getExercisesByCategory, getTrainingExercises, getReliefExercises, categories } from './data.js';
 import * as storage from './storage.js';
 import { createPlayer } from './player.js';
 import { getInsights, getExerciseReport, getSignalChartData } from './insights.js';
@@ -235,7 +235,7 @@ function applyTheme(theme) {
   const meta = document.querySelector('meta[name="theme-color"]');
   if (meta) {
     const isLight = document.body.classList.contains('theme-light');
-    meta.setAttribute('content', isLight ? '#ffffff' : '#0d1117');
+    meta.setAttribute('content', isLight ? '#f5f2ed' : '#1a1d21');
   }
 }
 
@@ -312,114 +312,51 @@ function setupNavigation() {
 }
 
 // ============================================================================
-// EXERCISE RECOMMENDATIONS
+// V6: RELIEF EXERCISE RECOMMENDATIONS
 // ============================================================================
 
-function getRecommendation() {
-  const time = getTimeOfDay();
-  const checkIn = storage.getTodayCheckIn();
-  const activeSignal = appState.activeSignal || (checkIn && checkIn.primarySignal) || null;
+/**
+ * Find the best relief exercise for a given signal.
+ * Scores by signal match, personal effectiveness data, and evidence level.
+ */
+function getReliefRecommendation(signalId) {
+  const reliefExercises = getReliefExercises();
   const todaySessions = storage.getTodaySessions();
   const usedIds = new Set(todaySessions.map(s => s.exerciseId));
-  const profile = storage.getProfile();
-  const effectiveness = storage.getExerciseEffectiveness(90);
   const signalEff = storage.getSignalEffectiveness(90);
 
-  // Build scored candidates
-  const candidates = exercises.filter(ex => !usedIds.has(ex.id)).map(ex => {
+  const scored = reliefExercises.map(ex => {
     let score = 0;
     let reason = '';
 
-    // === V4: Signal-based scoring (highest priority) ===
-    if (activeSignal) {
-      if (ex.signals && ex.signals.includes(activeSignal)) {
-        score += 8;
-        reason = SIGNALS[activeSignal].recommendation;
-      }
-      // Personal signal effectiveness data
-      const sigEff = signalEff.get(ex.id);
-      if (sigEff && sigEff.count >= 2 && sigEff[activeSignal] > 0.5) {
-        score += 5;
-        reason = `Your best tool for ${SIGNALS[activeSignal].name.toLowerCase()}`;
-      }
+    // Signal match (primary criterion)
+    if (ex.signals && ex.signals.includes(signalId)) {
+      score += 5;
+      reason = SIGNALS[signalId].recommendation;
     }
 
-    // === V3: Outcome-based learning — personal effectiveness data ===
-    const eff = effectiveness.get(ex.id);
-    if (eff && eff.count >= 2) {
-      if (eff.avgReduction >= 2 && eff.consistency >= 0.7) {
-        score += 6;
-        reason = reason || `Works well for you (avg ${eff.avgReduction.toFixed(1)} point relief)`;
-      } else if (eff.avgReduction >= 1) {
-        score += 3;
-        reason = reason || 'Helped you before';
-      }
-    }
-
-    // === V3: Profile-based matching ===
-    if (profile.completed) {
-      if (profile.preferredModalities.includes(ex.category)) {
-        score += 2;
-      }
-      profile.primaryStressors.forEach(stressor => {
-        if (ex.bestFor.includes(stressor)) {
-          score += 2;
-          reason = reason || `Matches your ${stressor.replace('-', ' ')} goal`;
-        }
-      });
-      if (profile.availableMinutes) {
-        const exMinutes = ex.duration / 60;
-        if (exMinutes <= profile.availableMinutes) {
-          score += 1;
-        } else {
-          score -= 1;
-        }
-      }
-      if (profile.goals.includes('sleep-better') && ex.bestFor.includes('sleep')) score += 2;
-      if (profile.goals.includes('calm-down') && ex.bestFor.includes('acute-stress')) score += 2;
-      if (profile.goals.includes('build-resilience') && ex.bestFor.includes('baseline')) score += 2;
-    }
-
-    // Time-of-day matching
-    if (time === 'morning') {
-      if (ex.bestFor.includes('baseline'))    { score += 2; reason = reason || 'Great morning routine'; }
-    } else if (time === 'evening') {
-      if (ex.bestFor.includes('sleep'))       { score += 3; reason = reason || 'Wind down for sleep'; }
-      if (ex.bestFor.includes('body-tension')){ score += 1; }
+    // Personal effectiveness for this signal
+    const sigData = signalEff.get(ex.id);
+    if (sigData && sigData.count >= 2 && sigData[signalId] > 0.5) {
+      score += 4;
+      reason = `Your best tool for ${SIGNALS[signalId].name.toLowerCase()}`;
     }
 
     // Prefer strong evidence
-    if (ex.evidenceLevel === 'strong') score += 1;
+    if (ex.evidenceLevel === 'strong') score += 2;
+    if (ex.evidenceLevel === 'moderate') score += 1;
+
+    // Slight penalty for already-used-today
+    if (usedIds.has(ex.id)) score -= 1;
 
     // Boost favorites
-    if (storage.isFavorite(ex.id)) score += 2;
+    if (storage.isFavorite(ex.id)) score += 1;
 
     return { exercise: ex, score, reason: reason || 'Recommended for you' };
   });
 
-  candidates.sort((a, b) => b.score - a.score);
-  return candidates[0] || null;
-}
-
-function showRecommendation() {
-  const card = $('recommendation-card');
-  if (!card) return;
-
-  const rec = getRecommendation();
-  if (!rec || rec.score < 1) {
-    card.style.display = 'none';
-    return;
-  }
-
-  card.style.display = 'block';
-  const labelEl = $('rec-label');
-  const titleEl = $('rec-title');
-  const reasonEl = $('rec-reason');
-  if (labelEl) labelEl.textContent = 'Suggested for you';
-  if (titleEl) titleEl.textContent = `${rec.exercise.icon} ${rec.exercise.title}`;
-  if (reasonEl) reasonEl.textContent = rec.reason;
-
-  card.onclick = () => startExercise(rec.exercise.id);
+  scored.sort((a, b) => b.score - a.score);
+  return scored[0] || null;
 }
 
 // ============================================================================
@@ -441,7 +378,6 @@ function initHome() {
   const btnEmergency = $('btn-emergency');
   if (btnEmergency) btnEmergency.onclick = () => startExercise('physiological-sigh');
 
-  updateTodayStatus();
   updateRecentExercises();
 }
 
@@ -540,6 +476,8 @@ function setupSignalGrid() {
     grid.querySelectorAll('.signal-card').forEach(card => {
       card.classList.toggle('selected', card.dataset.signal === checkIn.primarySignal);
     });
+    // Show recommendation for restored signal
+    showReliefRecommendation(checkIn.primarySignal);
   }
 
   grid.querySelectorAll('.signal-card').forEach(card => {
@@ -553,41 +491,41 @@ function setupSignalGrid() {
 
       // Save check-in
       storage.saveCheckIn(signal);
-      showToast(`${SIGNALS[signal].cardLabel}`);
 
-      // Update tagline based on signal
-      const tagline = $('home-tagline');
-      if (tagline) {
-        const hints = {
-          mind: "Let's quiet that down.",
-          body: "Let's release that tension.",
-          breath: "Let's open that up.",
-          pressure: "Let's ease that feeling.",
-        };
-        tagline.textContent = hints[signal] || "Let's work on that.";
-      }
-
-      // Refresh recommendation with signal context
-      showRecommendation();
+      // Show inline relief recommendation
+      showReliefRecommendation(signal);
     });
   });
 }
 
-function updateTodayStatus() {
-  const el = $('today-status');
-  if (!el) return;
-  const sessions = storage.getTodaySessions();
-  const streak = storage.getStreak();
-  let html = '';
-  if (sessions.length > 0) {
-    html += `<p class="status-line">✓ You've done <strong>${sessions.length}</strong> exercise(s) today</p>`;
-  } else {
-    html += '<p class="status-line">Ready when you are.</p>';
+/**
+ * V6: Show a relief exercise recommendation inline below the signal grid.
+ */
+function showReliefRecommendation(signalId) {
+  const container = $('relief-recommendation');
+  if (!container) return;
+
+  const rec = getReliefRecommendation(signalId);
+  if (!rec) {
+    container.style.display = 'none';
+    return;
   }
-  if (streak.current > 0)       html += `<p class="status-line"><strong>${streak.current}</strong> day streak</p>`;
-  else if (streak.longest > 0)  html += '<p class="status-line">Welcome back.</p>';
-  else                          html += '<p class="status-line">Start your first exercise below.</p>';
-  el.innerHTML = html;
+
+  const ex = rec.exercise;
+  container.style.display = 'block';
+  container.innerHTML = `
+    <div class="relief-rec-card" data-exercise-id="${ex.id}">
+      <div class="relief-rec-indicator" data-category="${ex.category}"></div>
+      <div class="relief-rec-body">
+        <div class="relief-rec-title">${ex.title}</div>
+        <div class="relief-rec-meta">${formatDuration(ex.duration)} · ${rec.reason}</div>
+      </div>
+      <button class="btn btn-primary btn-small relief-rec-start">Start</button>
+    </div>`;
+
+  // Wire up click
+  const card = container.querySelector('.relief-rec-card');
+  if (card) card.addEventListener('click', () => startExercise(ex.id));
 }
 
 function updateRecentExercises() {
@@ -600,11 +538,11 @@ function updateRecentExercises() {
   list.innerHTML = top.map(item => {
     const ex = getExercise(item.exerciseId);
     if (!ex) return '';
-    return `<div class="recent-card" data-exercise-id="${ex.id}">
-      <div class="recent-icon">${ex.icon}</div>
+    return `<div class="recent-card" data-exercise-id="${ex.id}" data-category="${ex.category}">
+      <div class="recent-indicator"></div>
       <div class="recent-info">
         <div class="recent-title">${ex.title}</div>
-        <div class="recent-meta">${item.count}x • ${item.avgStressReduction.toFixed(1)} point relief</div>
+        <div class="recent-meta">${item.count}x${item.avgReduction > 0 ? ` · ${item.avgReduction.toFixed(1)} point relief` : ''}</div>
       </div></div>`;
   }).join('');
   list.querySelectorAll('.recent-card').forEach(c => {
@@ -764,6 +702,10 @@ function populateExerciseList(category) {
       list.innerHTML = '<p class="empty-state">No saved exercises yet. Tap the bookmark on any exercise to save it here.</p>';
       return;
     }
+  } else if (category === 'training') {
+    filtered = getTrainingExercises();
+  } else if (category === 'relief') {
+    filtered = getReliefExercises();
   } else if (category !== 'all') {
     filtered = getExercisesByCategory(category);
   }
@@ -1408,21 +1350,25 @@ function renderSignalChart() {
 function updateHistoryStats() {
   const grid = $('stats-grid');
   if (!grid) return;
-  const streak = storage.getStreak();
+  const practiceStreak = storage.getPracticeStreak();
   const weekly = storage.getRecentSessions(7);
-  let avg = 0, count = 0;
-  weekly.forEach(s => {
-    if (typeof s.stressBefore === 'number' && typeof s.stressAfter === 'number') {
-      avg += s.stressBefore - s.stressAfter;
-      count++;
+  const allRecent = storage.getRecentSessions(30);
+
+  // Count training vs relief sessions
+  let trainingCount = 0, reliefCount = 0;
+  allRecent.forEach(s => {
+    const ex = getExercise(s.exerciseId);
+    if (ex) {
+      if (ex.mode === 'training' || ex.mode === 'both') trainingCount++;
+      if (ex.mode === 'relief' || ex.mode === 'both') reliefCount++;
     }
   });
-  if (count > 0) avg /= count;
 
   grid.innerHTML = `
-    <div class="stat-card"><div class="stat-label">Current Streak</div><div class="stat-value">${streak.current}</div><div class="stat-unit">days</div></div>
+    <div class="stat-card"><div class="stat-label">Practice Streak</div><div class="stat-value">${practiceStreak.current}</div><div class="stat-unit">days</div></div>
     <div class="stat-card"><div class="stat-label">This Week</div><div class="stat-value">${weekly.length}</div><div class="stat-unit">sessions</div></div>
-    <div class="stat-card"><div class="stat-label">Avg Relief</div><div class="stat-value">${avg > 0 ? '+' : ''}${avg.toFixed(1)}</div><div class="stat-unit">points</div></div>`;
+    <div class="stat-card"><div class="stat-label">Training</div><div class="stat-value">${trainingCount}</div><div class="stat-unit">last 30 days</div></div>
+    <div class="stat-card"><div class="stat-label">Longest Streak</div><div class="stat-value">${practiceStreak.longest}</div><div class="stat-unit">days</div></div>`;
 }
 
 function renderWeeklyChart() {
@@ -1479,8 +1425,8 @@ function populateRecentSessions() {
     } else if (typeof s.stressBefore === 'number') {
       shiftText = `${s.stressBefore} → ${s.stressAfter}`;
     }
-    return `<div class="history-item">
-      <div class="history-icon">${ex.icon}</div>
+    return `<div class="history-item" data-category="${ex.category}">
+      <div class="history-indicator"></div>
       <div class="history-info"><div class="history-title">${ex.title}</div><div class="history-date">${formatDateDisplay(s.date)}</div></div>
       <div class="history-stress">${shiftText}</div>
     </div>`;
@@ -1500,7 +1446,7 @@ function populateMostHelpful() {
     const ex = getExercise(item.exerciseId);
     if (!ex) return '';
     // V4: Show best signal-specific insight if available
-    let statsText = `${item.count}x • ${item.avgStressReduction.toFixed(1)} avg relief`;
+    let statsText = `${item.count}x${item.avgReduction > 0 ? ` · ${item.avgReduction.toFixed(1)} avg relief` : ''}`;
     const sigData = signalEff.get(item.exerciseId);
     if (sigData && sigData.count >= 2) {
       let bestSig = null, bestAvg = 0;
@@ -1511,8 +1457,8 @@ function populateMostHelpful() {
         statsText = `${item.count}x • Best for ${SIGNALS[bestSig].name.toLowerCase()}`;
       }
     }
-    return `<div class="most-helpful-card" data-exercise-id="${ex.id}">
-      <div class="helpful-icon">${ex.icon}</div>
+    return `<div class="most-helpful-card" data-exercise-id="${ex.id}" data-category="${ex.category}">
+      <div class="helpful-indicator"></div>
       <div class="helpful-info"><div class="helpful-title">${ex.title}</div>
       <div class="helpful-stats">${statsText}</div></div>
     </div>`;
@@ -1564,47 +1510,40 @@ function generateProgressImage() {
   const ctx = canvas.getContext('2d');
 
   // Background
-  ctx.fillStyle = '#0d1117';
+  ctx.fillStyle = '#1a1d21';
   ctx.fillRect(0, 0, 600, 400);
 
   // Title
-  ctx.fillStyle = '#e6edf3';
+  ctx.fillStyle = '#e2dfd9';
   ctx.font = 'bold 28px -apple-system, BlinkMacSystemFont, sans-serif';
   ctx.fillText('Steady', 32, 48);
   ctx.font = '14px -apple-system, BlinkMacSystemFont, sans-serif';
-  ctx.fillStyle = '#8b949e';
-  ctx.fillText('Evidence-based stress relief', 32, 72);
+  ctx.fillStyle = '#9b9690';
+  ctx.fillText('Train your resilience.', 32, 72);
 
   // Stats
-  const streak = storage.getStreak();
+  const practiceStreak = storage.getPracticeStreak();
   const weekly = storage.getRecentSessions(7);
   const total = storage.getRecentSessions(365);
-  let avg = 0, cnt = 0;
-  total.forEach(s => {
-    if (typeof s.stressBefore === 'number' && typeof s.stressAfter === 'number') {
-      avg += s.stressBefore - s.stressAfter; cnt++;
-    }
-  });
-  if (cnt > 0) avg /= cnt;
 
   const stats = [
-    { label: 'Current Streak', value: `${streak.current} days` },
+    { label: 'Practice Streak', value: `${practiceStreak.current} days` },
+    { label: 'Longest Streak', value: `${practiceStreak.longest} days` },
     { label: 'This Week', value: `${weekly.length} sessions` },
     { label: 'All Time', value: `${total.length} sessions` },
-    { label: 'Avg Relief', value: `${avg > 0 ? '+' : ''}${avg.toFixed(1)} points` },
   ];
 
   stats.forEach((s, i) => {
     const x = 32 + (i % 2) * 280;
     const y = 120 + Math.floor(i / 2) * 90;
-    ctx.fillStyle = '#1c2128';
+    ctx.fillStyle = '#282d33';
     ctx.beginPath();
     ctx.roundRect(x, y, 250, 70, 12);
     ctx.fill();
-    ctx.fillStyle = '#8b949e';
+    ctx.fillStyle = '#9b9690';
     ctx.font = '13px -apple-system, BlinkMacSystemFont, sans-serif';
     ctx.fillText(s.label, x + 16, y + 28);
-    ctx.fillStyle = '#e6edf3';
+    ctx.fillStyle = '#e2dfd9';
     ctx.font = 'bold 22px -apple-system, BlinkMacSystemFont, sans-serif';
     ctx.fillText(s.value, x + 16, y + 54);
   });
@@ -1621,19 +1560,19 @@ function generateProgressImage() {
     const count = sessions.filter(s => s.date === dateStr).length;
     const x = 32 + (6 - i) * 78;
     const h = count > 0 ? Math.max(count * 12, 6) : 3;
-    ctx.fillStyle = count > 0 ? '#58a6ff' : '#30363d';
+    ctx.fillStyle = count > 0 ? '#8fb591' : '#3a4149';
     ctx.beginPath();
     ctx.roundRect(x, barY - h, 56, h, 4);
     ctx.fill();
-    ctx.fillStyle = '#8b949e';
+    ctx.fillStyle = '#9b9690';
     ctx.font = '11px -apple-system, BlinkMacSystemFont, sans-serif';
     ctx.fillText(dayNames[d.getDay()], x + 24, barY + 16);
   }
 
   // Footer
-  ctx.fillStyle = '#484f58';
+  ctx.fillStyle = '#7a7570';
   ctx.font = '11px -apple-system, BlinkMacSystemFont, sans-serif';
-  ctx.fillText(`Generated ${new Date().toLocaleDateString()} • steady`, 32, 380);
+  ctx.fillText(`Generated ${new Date().toLocaleDateString()} · Steady`, 32, 380);
 
   return canvas;
 }
@@ -1802,10 +1741,10 @@ function cancelReminder() {
 function showReminderNotification() {
   if ('Notification' in window && Notification.permission === 'granted') {
     const messages = [
-      'Time for your daily reset.',
-      'A few minutes of calm can change your whole day.',
-      'Your stress-relief practice is waiting.',
-      'Take 3 minutes for yourself.',
+      'Time for today\'s practice.',
+      'A few minutes of training builds real resilience.',
+      'Your daily practice is waiting.',
+      'Train your nervous system. It takes 3 minutes.',
     ];
     const msg = messages[Math.floor(Math.random() * messages.length)];
     try {
@@ -1827,7 +1766,7 @@ function showOnboarding() {
 
   let currentStep = 0;
   const steps = overlay.querySelectorAll('.onboard-step');
-  const profile = { primaryStressors: [], preferredModalities: [], availableMinutes: 3, goals: [] };
+  const profile = { primaryStressors: [], preferredModalities: [], availableMinutes: 3, goals: ['build-resilience'] };
 
   function showStep(idx) {
     steps.forEach((s, i) => {
@@ -1852,31 +1791,18 @@ function showOnboarding() {
     });
   });
 
-  // Time selector
-  overlay.querySelectorAll('.onboard-time-option').forEach(opt => {
-    opt.addEventListener('click', () => {
-      overlay.querySelectorAll('.onboard-time-option').forEach(o => o.classList.remove('selected'));
-      opt.classList.add('selected');
-      profile.availableMinutes = parseInt(opt.dataset.minutes);
-      hapticTap();
-    });
-  });
-
   // Next buttons
   overlay.querySelectorAll('.onboard-next').forEach(btn => {
     btn.addEventListener('click', () => {
       // Collect data from current step
-      if (currentStep === 0) collectSelections(steps[0], 'primaryStressors');
       if (currentStep === 1) collectSelections(steps[1], 'preferredModalities');
-      // Step 2 = time (handled by click above)
-      if (currentStep === 3) collectSelections(steps[3], 'goals');
+      if (currentStep === 2) collectSelections(steps[2], 'goals');
 
       currentStep++;
       if (currentStep >= steps.length) {
         // Save profile and close
         storage.saveProfile(profile);
         overlay.style.display = 'none';
-        showToast('Personalized for you');
         // Refresh home with new profile data
         navigate('home');
       } else {

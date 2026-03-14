@@ -345,20 +345,36 @@ export function getMostUsedExercises(days = 30) {
         exerciseMap.set(session.exerciseId, {
           exerciseId: session.exerciseId,
           count: 0,
-          totalStressReduction: 0,
+          totalReduction: 0,
+          reductionCount: 0,
         });
       }
 
-      const exercise = exerciseMap.get(session.exerciseId);
-      exercise.count += 1;
-      exercise.totalStressReduction += session.stressBefore - session.stressAfter;
+      const entry = exerciseMap.get(session.exerciseId);
+      entry.count += 1;
+
+      // V4+: compute total signal drop across all signals
+      if (session.signalsBefore && session.signalsAfter) {
+        let totalDrop = 0;
+        for (const sig of ['mind', 'body', 'breath', 'pressure']) {
+          const before = session.signalsBefore[sig] || 0;
+          const after = session.signalsAfter[sig] || 0;
+          totalDrop += Math.max(0, before - after);
+        }
+        entry.totalReduction += totalDrop;
+        entry.reductionCount += 1;
+      } else if (typeof session.stressBefore === 'number' && typeof session.stressAfter === 'number') {
+        // Legacy fallback
+        entry.totalReduction += session.stressBefore - session.stressAfter;
+        entry.reductionCount += 1;
+      }
     });
 
     return Array.from(exerciseMap.values())
-      .map((exercise) => ({
-        exerciseId: exercise.exerciseId,
-        count: exercise.count,
-        avgStressReduction: exercise.totalStressReduction / exercise.count,
+      .map((entry) => ({
+        exerciseId: entry.exerciseId,
+        count: entry.count,
+        avgReduction: entry.reductionCount > 0 ? entry.totalReduction / entry.reductionCount : 0,
       }))
       .sort((a, b) => b.count - a.count);
   });

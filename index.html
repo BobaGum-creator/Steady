@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1">
-  <meta name="theme-color" content="#0d1117">
+  <meta name="theme-color" content="#1a1d21">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="Steady">
@@ -17,25 +17,18 @@
     <!-- Onboarding Overlay (V3) -->
     <div id="onboarding-overlay" class="onboard-overlay" style="display:none;">
       <div class="onboard-container">
-        <!-- Step 1: Stressors -->
+        <!-- Step 1: Welcome / Mission -->
         <div class="onboard-step">
-          <h2 class="onboard-title">What brings you here?</h2>
-          <p class="onboard-desc">Tap all that apply — we'll personalize your experience.</p>
-          <div class="onboard-chips">
-            <button class="onboard-chip" data-value="acute-stress">Feeling overwhelmed</button>
-            <button class="onboard-chip" data-value="rumination">Racing thoughts</button>
-            <button class="onboard-chip" data-value="body-tension">Body tension</button>
-            <button class="onboard-chip" data-value="sleep">Trouble sleeping</button>
-            <button class="onboard-chip" data-value="baseline">General stress</button>
-          </div>
-          <button class="btn btn-primary btn-large onboard-next">Next</button>
+          <h2 class="onboard-title">Steady</h2>
+          <p class="onboard-desc">Train your nervous system to handle stress better. One short practice a day builds real resilience. Relief tools are here when you need them.</p>
+          <button class="btn btn-primary btn-large onboard-next">Get Started</button>
           <button class="btn btn-ghost onboard-skip">Skip setup</button>
         </div>
 
-        <!-- Step 2: Modalities -->
+        <!-- Step 2: Preferred modalities -->
         <div class="onboard-step" style="display:none;">
-          <h2 class="onboard-title">What sounds good?</h2>
-          <p class="onboard-desc">Pick the types of exercises you're drawn to.</p>
+          <h2 class="onboard-title">What draws you?</h2>
+          <p class="onboard-desc">Pick the types of exercises you're interested in.</p>
           <div class="onboard-chips">
             <button class="onboard-chip" data-value="breathwork">Breathing</button>
             <button class="onboard-chip" data-value="body">Body-based</button>
@@ -45,26 +38,13 @@
           <button class="btn btn-primary btn-large onboard-next">Next</button>
         </div>
 
-        <!-- Step 3: Time -->
+        <!-- Step 3: Goals -->
         <div class="onboard-step" style="display:none;">
-          <h2 class="onboard-title">How much time do you have?</h2>
-          <p class="onboard-desc">We'll recommend exercises that fit.</p>
-          <div class="onboard-time-options">
-            <button class="onboard-time-option" data-minutes="1">1 min</button>
-            <button class="onboard-time-option selected" data-minutes="3">3 min</button>
-            <button class="onboard-time-option" data-minutes="5">5 min</button>
-            <button class="onboard-time-option" data-minutes="10">10 min</button>
-          </div>
-          <button class="btn btn-primary btn-large onboard-next">Next</button>
-        </div>
-
-        <!-- Step 4: Goals -->
-        <div class="onboard-step" style="display:none;">
-          <h2 class="onboard-title">What's your goal?</h2>
-          <p class="onboard-desc">This helps us suggest the right exercises over time.</p>
+          <h2 class="onboard-title">What matters most?</h2>
+          <p class="onboard-desc">We'll shape your experience around this.</p>
           <div class="onboard-chips">
-            <button class="onboard-chip" data-value="calm-down">Calm down faster</button>
             <button class="onboard-chip" data-value="build-resilience">Build stress resilience</button>
+            <button class="onboard-chip" data-value="calm-down">Calm down faster</button>
             <button class="onboard-chip" data-value="sleep-better">Sleep better</button>
           </div>
           <button class="btn btn-primary btn-large onboard-next">Let's go</button>
@@ -126,6 +106,9 @@
           </div>
         </div>
 
+        <!-- V6: Inline relief recommendation (populated by JS on signal tap) -->
+        <div class="relief-recommendation" id="relief-recommendation" style="display:none;"></div>
+
         <!-- Quick actions -->
         <div class="quick-actions">
           <button class="btn btn-secondary btn-large" id="btn-emergency" aria-label="Start emergency calm exercise">Emergency Calm</button>
@@ -135,11 +118,6 @@
       <!-- V5: Insight Cards -->
       <div id="insight-cards" class="insight-cards-container">
         <!-- Populated by JS: max 2 contextual insight cards -->
-      </div>
-
-      <!-- Today's status -->
-      <div class="today-status" id="today-status">
-        <!-- Populated by JS: shows completion state and streak -->
       </div>
 
       <!-- Recent favorites -->
@@ -160,6 +138,8 @@
       <!-- Category filter pills -->
       <div class="category-pills" id="category-pills">
         <button class="pill active" data-category="all">All</button>
+        <button class="pill" data-category="training">Training</button>
+        <button class="pill" data-category="relief">Relief</button>
         <button class="pill" data-category="favorites">Saved</button>
         <button class="pill" data-category="breathwork">Breathwork</button>
         <button class="pill" data-category="body">Body</button>
@@ -265,7 +245,7 @@
 
       <!-- Post-exercise shift check (V4: only elevated signals) -->
       <div class="player-post" id="player-post" style="display:none;">
-        <div class="completion-check">✓</div>
+        <div class="completion-check"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:32px;height:32px"><polyline points="20 6 9 17 4 12"/></svg></div>
         <h2>Done.</h2>
         <div class="state-check" id="state-check-post">
           <h3 class="state-check-title">How do you feel now?</h3>
