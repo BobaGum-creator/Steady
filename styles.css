@@ -8,23 +8,23 @@
    ============================================================================ */
 
 :root {
-  /* Color Palette */
-  --bg-primary: #0d1117;
-  --bg-secondary: #161b22;
-  --bg-card: #1c2128;
-  --bg-elevated: #242b35;
-  --border: #30363d;
-  --text-primary: #e6edf3;
-  --text-secondary: #8b949e;
-  --text-muted: #484f58;
-  --accent: #58a6ff;
-  --accent-soft: rgba(88, 166, 255, 0.15);
-  --success: #3fb950;
-  --success-soft: rgba(63, 185, 80, 0.15);
-  --warning: #d29922;
-  --danger: #f85149;
-  --breathe-in: #58a6ff;
-  --breathe-out: #3fb950;
+  /* Color Palette — Slate / Sage / Sand */
+  --bg-primary: #1a1d21;
+  --bg-secondary: #21252a;
+  --bg-card: #282d33;
+  --bg-elevated: #2f353c;
+  --border: #3a4149;
+  --text-primary: #e2dfd9;
+  --text-secondary: #9b9690;
+  --text-muted: #7a7570;
+  --accent: #8fb591;
+  --accent-soft: rgba(143, 181, 145, 0.12);
+  --success: #9bc483;
+  --success-soft: rgba(155, 196, 131, 0.10);
+  --warning: #c4a57a;
+  --danger: #c2685e;
+  --breathe-in: #8fb591;
+  --breathe-out: #c4a57a;
 
   /* Typography */
   --font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica,
@@ -62,6 +62,26 @@
   --transition-fast: 150ms ease-out;
   --transition-base: 300ms ease-out;
   --transition-slow: 500ms ease-out;
+}
+
+/* Light Theme */
+body.theme-light {
+  --bg-primary: #f5f2ed;
+  --bg-secondary: #ebe8e2;
+  --bg-card: #ffffff;
+  --bg-elevated: #e5e2dc;
+  --border: #d1cdc6;
+  --text-primary: #2a2825;
+  --text-secondary: #6b6660;
+  --text-muted: #9b9690;
+  --accent: #4a6e4e;
+  --accent-soft: rgba(74, 110, 78, 0.10);
+  --success: #3d8a4a;
+  --success-soft: rgba(61, 138, 74, 0.08);
+  --warning: #a08058;
+  --danger: #b05a50;
+  --breathe-in: #4a6e4e;
+  --breathe-out: #a08058;
 }
 
 /* ============================================================================
@@ -217,7 +237,8 @@ nav.bottom-nav {
   height: 56px;
   background-color: var(--bg-secondary);
   border-top: 1px solid var(--border);
-  backdrop-filter: blur(10px);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
   display: flex;
   justify-content: space-around;
   align-items: stretch;
@@ -256,6 +277,19 @@ nav.bottom-nav {
   stroke-width: 2;
   stroke: currentColor;
   fill: none;
+}
+
+.nav-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+}
+
+.nav-icon svg {
+  width: 20px;
+  height: 20px;
 }
 
 .nav-tab label {
@@ -373,10 +407,24 @@ button:active {
   background-color: var(--accent);
   color: var(--bg-primary);
   font-weight: 600;
+  transition: background-color var(--transition-fast), opacity var(--transition-fast), box-shadow var(--transition-fast);
+}
+
+.btn-primary:hover {
+  background-color: color-mix(in srgb, var(--accent) 85%, white);
+  box-shadow: 0 2px 12px rgba(143, 181, 145, 0.25);
 }
 
 .btn-primary:active {
-  opacity: 0.9;
+  opacity: 0.85;
+  box-shadow: none;
+}
+
+.btn-primary:disabled {
+  background-color: var(--bg-elevated);
+  color: var(--text-muted);
+  cursor: not-allowed;
+  box-shadow: none;
 }
 
 /* Secondary Button */
@@ -384,10 +432,22 @@ button:active {
   background-color: var(--bg-elevated);
   color: var(--text-primary);
   border: 1px solid var(--border);
+  transition: background-color var(--transition-fast), border-color var(--transition-fast);
+}
+
+.btn-secondary:hover {
+  border-color: var(--text-muted);
+  background-color: var(--bg-card);
 }
 
 .btn-secondary:active {
-  background-color: var(--bg-card);
+  background-color: var(--bg-secondary);
+}
+
+.btn-secondary:disabled {
+  color: var(--text-muted);
+  border-color: var(--border);
+  cursor: not-allowed;
 }
 
 /* Ghost Button */
@@ -425,14 +485,15 @@ button:active {
 }
 
 /* ============================================================================
-   7. STRESS CHECK-IN SLIDER
+   7. SIGNAL GRID (Home Screen — V4)
    ============================================================================ */
 
-.stress-slider-container {
-  padding: var(--space-lg) 0;
+.signal-section {
+  margin-bottom: var(--space-lg);
 }
 
-.stress-slider-label {
+.signal-section-label {
+  display: block;
   font-size: var(--font-size-sm);
   color: var(--text-secondary);
   text-align: center;
@@ -442,71 +503,186 @@ button:active {
   font-weight: 500;
 }
 
-.stress-slider-value {
+.signal-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-md);
+}
+
+.signal-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-xs);
+  padding: var(--space-base) var(--space-sm);
+  background-color: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--border-radius-md);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
+  cursor: pointer;
+  transition: background-color var(--transition-fast),
+    border-color var(--transition-fast),
+    transform var(--transition-fast),
+    box-shadow var(--transition-fast);
+  min-height: 100px;
   text-align: center;
-  font-size: var(--font-size-xl);
-  color: var(--accent);
+  color: var(--text-primary);
+  font-family: var(--font-family);
+}
+
+.signal-card:active {
+  transform: scale(0.96);
+}
+
+.signal-card.selected {
+  background-color: var(--accent-soft);
+  border-color: var(--accent);
+  box-shadow: 0 0 16px rgba(88, 166, 255, 0.15);
+}
+
+.signal-card .signal-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+}
+
+.signal-card .signal-icon svg {
+  width: 28px;
+  height: 28px;
+  stroke: currentColor;
+  opacity: 0.7;
+}
+
+.signal-card.active .signal-icon svg {
+  opacity: 1;
+}
+
+.signal-card .signal-name {
+  font-size: var(--font-size-sm);
   font-weight: 600;
+  color: var(--text-primary);
+}
+
+.signal-card .signal-hint {
+  font-size: 12px;
+  color: var(--text-secondary);
+  line-height: 1.3;
+}
+
+/* ============================================================================
+   7.5. STATE CHECK (Pre/Post Exercise — V4)
+   ============================================================================ */
+
+.state-check {
+  padding: var(--space-sm) 0;
+}
+
+.state-check-title {
+  font-size: var(--font-size-md);
+  font-weight: 600;
+  color: var(--text-primary);
+  text-align: center;
   margin-bottom: var(--space-lg);
 }
 
-.stress-slider {
-  width: 100%;
-  height: 8px;
-  appearance: none;
-  background: linear-gradient(
-    to right,
-    var(--success),
-    var(--warning),
-    var(--danger)
-  );
-  border-radius: 4px;
-  outline: none;
-  cursor: pointer;
-}
-
-/* Slider thumb */
-.stress-slider::-webkit-slider-thumb {
-  appearance: none;
-  width: 32px;
-  height: 32px;
-  border-radius: 50%;
-  background-color: var(--accent);
-  cursor: pointer;
-  box-shadow: 0 2px 8px rgba(88, 166, 255, 0.3);
-  transition: box-shadow var(--transition-fast);
-}
-
-.stress-slider::-webkit-slider-thumb:active {
-  box-shadow: 0 4px 16px rgba(88, 166, 255, 0.5);
-}
-
-.stress-slider::-moz-range-thumb {
-  width: 32px;
-  height: 32px;
-  border-radius: 50%;
-  background-color: var(--accent);
-  border: none;
-  cursor: pointer;
-  box-shadow: 0 2px 8px rgba(88, 166, 255, 0.3);
-  transition: box-shadow var(--transition-fast);
-}
-
-.stress-slider::-moz-range-thumb:active {
-  box-shadow: 0 4px 16px rgba(88, 166, 255, 0.5);
-}
-
-.stress-slider::-moz-range-track {
-  background: transparent;
-  border: none;
-}
-
-.stress-slider-labels {
+.signal-row {
   display: flex;
-  justify-content: space-between;
-  margin-top: var(--space-base);
+  flex-direction: column;
+  gap: var(--space-sm);
+  margin-bottom: var(--space-base);
+}
+
+.signal-row-label {
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.signal-row-label svg {
+  width: 18px;
+  height: 18px;
+  vertical-align: middle;
+  margin-right: var(--space-xs);
+  stroke: currentColor;
+  opacity: 0.6;
+}
+
+.signal-was {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-top: -4px;
+}
+
+.signal-levels {
+  display: flex;
+  gap: var(--space-sm);
+}
+
+.signal-level {
+  flex: 1;
+  padding: var(--space-sm) var(--space-xs);
+  background-color: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--border-radius-sm);
+  font-size: var(--font-size-sm);
+  font-weight: 500;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: background-color var(--transition-fast),
+    border-color var(--transition-fast),
+    color var(--transition-fast),
+    transform var(--transition-fast);
+  min-height: var(--min-touch-target);
+  font-family: var(--font-family);
+  text-align: center;
+}
+
+.signal-level:active {
+  transform: scale(0.95);
+}
+
+.signal-level.selected {
+  background-color: var(--accent);
+  border-color: var(--accent);
+  color: var(--bg-primary);
+  font-weight: 600;
+}
+
+/* Shift summary after post-exercise save */
+.shift-summary {
+  padding: var(--space-base) 0;
+  text-align: center;
+}
+
+.shift-item {
   font-size: var(--font-size-sm);
   color: var(--text-secondary);
+  margin-bottom: var(--space-xs);
+}
+
+.shift-item .shift-improved {
+  color: var(--success);
+  font-weight: 600;
+}
+
+.shift-item .shift-same {
+  color: var(--text-muted);
+}
+
+/* All-calm state (no signals elevated) */
+.all-calm-msg {
+  text-align: center;
+  padding: var(--space-lg) 0;
+  color: var(--text-secondary);
+  font-size: var(--font-size-base);
+}
+
+.all-calm-msg .calm-emoji {
+  font-size: 48px;
+  display: block;
+  margin-bottom: var(--space-sm);
 }
 
 /* ============================================================================
@@ -520,6 +696,7 @@ button:active {
   padding: var(--space-base);
   background-color: var(--bg-card);
   border: 1px solid var(--border);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
   border-radius: var(--border-radius-md);
   min-height: var(--min-touch-target);
   transition: background-color var(--transition-fast),
@@ -581,18 +758,19 @@ button:active {
 }
 
 .exercise-card-icon {
-  width: 48px;
-  height: 48px;
-  min-width: 48px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: var(--border-radius-sm);
-  background-color: var(--accent-soft);
-  color: var(--accent);
-  font-weight: 600;
-  font-size: var(--font-size-lg);
+  width: 6px;
+  min-width: 6px;
+  align-self: stretch;
+  border-radius: 3px;
+  background-color: var(--accent);
+  opacity: 0.6;
+  margin-right: var(--space-md);
 }
+
+.exercise-card[data-category="breathwork"] .exercise-card-icon { background-color: var(--accent); }
+.exercise-card[data-category="body"] .exercise-card-icon { background-color: var(--warning); }
+.exercise-card[data-category="mind"] .exercise-card-icon { background-color: var(--text-secondary); }
+.exercise-card[data-category="quick"] .exercise-card-icon { background-color: var(--danger); }
 
 .exercise-card-body {
   flex: 1;
@@ -646,7 +824,7 @@ button:active {
   margin-bottom: var(--space-lg);
 }
 
-.player-view {
+.player-view.active {
   display: flex !important;
   flex-direction: column;
   padding: 0;
@@ -995,6 +1173,20 @@ button:active {
   width: 100%;
 }
 
+.btn-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  margin-right: var(--space-xs);
+}
+
+.btn-icon svg {
+  width: 18px;
+  height: 18px;
+}
+
 .journal-textarea {
   width: 100%;
   padding: var(--space-base);
@@ -1254,32 +1446,7 @@ button:active {
   color: var(--text-secondary);
 }
 
-.checkin-label {
-  display: block;
-  font-weight: 500;
-  color: var(--text-primary);
-  margin-bottom: var(--space-base);
-}
-
-.checkin-slider-wrap {
-  margin-bottom: var(--space-lg);
-}
-
-.slider-labels {
-  display: flex;
-  justify-content: space-between;
-  font-size: var(--font-size-sm);
-  color: var(--text-secondary);
-  margin-top: var(--space-base);
-}
-
-.checkin-value {
-  text-align: center;
-  font-size: var(--font-size-xl);
-  font-weight: 600;
-  color: var(--accent);
-  margin: var(--space-base) 0;
-}
+/* (V4: old checkin-label, checkin-slider-wrap, slider-labels, checkin-value removed) */
 
 .section-title {
   font-size: var(--font-size-lg);
@@ -1293,15 +1460,47 @@ button:active {
   padding: 0 var(--gutters-mobile);
 }
 
-.check-in-card {
-  margin-bottom: var(--space-lg);
-}
+/* (V4: check-in-card replaced by signal-section) */
 
 .quick-actions {
   display: flex;
   flex-direction: column;
   gap: var(--space-base);
   margin-bottom: var(--space-lg);
+}
+
+.recommendation-card {
+  background: var(--accent-soft);
+  border: 1px solid var(--accent);
+  border-radius: var(--border-radius-md);
+  padding: var(--space-base);
+  margin-bottom: var(--space-base);
+  cursor: pointer;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.18);
+  transition: transform var(--transition-fast);
+}
+
+.recommendation-card:active {
+  transform: scale(0.98);
+}
+
+.recommendation-card .rec-label {
+  font-size: var(--font-size-sm);
+  color: var(--accent);
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+
+.recommendation-card .rec-title {
+  font-size: var(--font-size-md);
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.recommendation-card .rec-reason {
+  font-size: var(--font-size-sm);
+  color: var(--text-secondary);
+  margin-top: 4px;
 }
 
 /* ============================================================================
@@ -1501,6 +1700,7 @@ button:active {
   border-radius: var(--border-radius-md);
   padding: var(--space-base);
   text-align: center;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
 }
 
 .stat-value {
@@ -1519,6 +1719,44 @@ button:active {
 .stat-unit {
   font-size: var(--font-size-sm);
   color: var(--text-muted);
+}
+
+.fav-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+  opacity: 0.4;
+  transition: opacity var(--transition-fast), transform var(--transition-fast);
+  flex-shrink: 0;
+}
+
+.fav-btn:hover,
+.fav-btn:active {
+  opacity: 1;
+  transform: scale(1.2);
+}
+
+.fav-btn.favorited {
+  opacity: 1;
+}
+
+.fav-btn svg {
+  width: 18px;
+  height: 18px;
+  stroke: var(--text-secondary);
+  stroke-width: 1.5;
+  fill: none;
+  transition: all var(--transition-fast);
+}
+
+.fav-btn.favorited svg {
+  fill: var(--accent);
+  stroke: var(--accent);
 }
 
 /* ============================================================================
@@ -1793,6 +2031,104 @@ button:active {
   font-weight: 500;
 }
 
+/* Weekly Chart */
+.weekly-chart {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--border-radius-md);
+  padding: var(--space-base);
+  margin-bottom: var(--space-lg);
+}
+
+.weekly-chart h3 {
+  font-size: var(--font-size-base);
+  margin-bottom: var(--space-base);
+  color: var(--text-secondary);
+}
+
+.chart-bars {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  height: 120px;
+  gap: 6px;
+  padding-top: var(--space-sm);
+}
+
+.chart-day {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  flex: 1;
+  height: 100%;
+  justify-content: flex-end;
+}
+
+.chart-bar {
+  width: 100%;
+  min-height: 4px;
+  background: var(--accent);
+  border-radius: 4px 4px 0 0;
+  transition: height var(--transition-base);
+  opacity: 0.7;
+}
+
+.chart-bar.today {
+  opacity: 1;
+  background: var(--accent);
+}
+
+.chart-bar.empty {
+  background: var(--bg-elevated);
+  opacity: 0.3;
+}
+
+.chart-label {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-top: 6px;
+}
+
+.chart-value {
+  font-size: 11px;
+  color: var(--text-secondary);
+  margin-bottom: 4px;
+}
+
+.share-section {
+  text-align: center;
+  padding: var(--space-lg) 0;
+}
+
+.btn-share {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.theme-toggle-row {
+  display: flex;
+  gap: var(--space-sm);
+}
+
+.theme-option {
+  flex: 1;
+  padding: var(--space-md) var(--space-base);
+  border: 2px solid var(--border);
+  border-radius: var(--border-radius-sm);
+  background: var(--bg-card);
+  color: var(--text-primary);
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+  text-align: center;
+  transition: border-color var(--transition-fast);
+}
+
+.theme-option.active {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
 /* ============================================================================
    16. UTILITY CLASSES
    ============================================================================ */
@@ -1908,6 +2244,22 @@ button:active {
 
 .p-lg {
   padding: var(--space-lg);
+}
+
+.toast {
+  position: fixed;
+  bottom: 80px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--bg-elevated);
+  color: var(--text-primary);
+  padding: 12px 20px;
+  border-radius: 8px;
+  z-index: 1000;
+  font-size: 14px;
+  border: 1px solid var(--border);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+  animation: slideUp 0.3s ease-out;
 }
 
 /* ============================================================================
@@ -2073,6 +2425,565 @@ input,
 textarea,
 select {
   font-size: 16px;
+}
+
+/* ============================================================================
+   21. V3: ONBOARDING OVERLAY
+   ============================================================================ */
+
+.onboard-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  background-color: var(--bg-primary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-lg);
+  animation: fadeIn var(--transition-base);
+}
+
+.onboard-container {
+  max-width: 400px;
+  width: 100%;
+  text-align: center;
+}
+
+.onboard-title {
+  font-size: var(--font-size-xl);
+  font-weight: 700;
+  color: var(--text-primary);
+  margin-bottom: var(--space-sm);
+}
+
+.onboard-desc {
+  font-size: var(--font-size-base);
+  color: var(--text-secondary);
+  margin-bottom: var(--space-xl);
+}
+
+.onboard-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-sm);
+  justify-content: center;
+  margin-bottom: var(--space-xl);
+}
+
+.onboard-chip {
+  padding: var(--space-md) var(--space-base);
+  background-color: var(--bg-card);
+  border: 2px solid var(--border);
+  border-radius: 24px;
+  color: var(--text-primary);
+  font-size: var(--font-size-sm);
+  font-weight: 500;
+  cursor: pointer;
+  transition: border-color var(--transition-fast),
+    background-color var(--transition-fast),
+    transform var(--transition-fast);
+}
+
+.onboard-chip:active {
+  transform: scale(0.95);
+}
+
+.onboard-chip.selected {
+  border-color: var(--accent);
+  background-color: var(--accent-soft);
+  color: var(--accent);
+}
+
+.onboard-time-options {
+  display: flex;
+  gap: var(--space-sm);
+  justify-content: center;
+  margin-bottom: var(--space-xl);
+}
+
+.onboard-time-option {
+  width: 72px;
+  height: 72px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background-color: var(--bg-card);
+  border: 2px solid var(--border);
+  color: var(--text-primary);
+  font-size: var(--font-size-base);
+  font-weight: 600;
+  cursor: pointer;
+  transition: border-color var(--transition-fast),
+    background-color var(--transition-fast);
+}
+
+.onboard-time-option.selected {
+  border-color: var(--accent);
+  background-color: var(--accent-soft);
+  color: var(--accent);
+}
+
+.onboard-next {
+  margin-bottom: var(--space-base);
+}
+
+.onboard-skip {
+  font-size: var(--font-size-sm);
+  color: var(--text-muted);
+}
+
+/* ============================================================================
+   22. V3: NARRATION LAYER — animated step text transitions
+   ============================================================================ */
+
+.narration-enter {
+  animation: narrationIn 0.4s ease-out;
+}
+
+.narration-exit {
+  animation: narrationOut 0.2s ease-in forwards;
+}
+
+@keyframes narrationIn {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes narrationOut {
+  from {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  to {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
+}
+
+/* Step type hint — shows below instruction text */
+.step-type-hint {
+  font-size: var(--font-size-sm);
+  color: var(--text-muted);
+  text-align: center;
+  margin-top: var(--space-sm);
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  animation: fadeIn var(--transition-base);
+}
+
+/* Step dot indicator — visual progress dots */
+.step-indicator {
+  display: flex;
+  justify-content: center;
+  gap: 6px;
+  margin-bottom: var(--space-base);
+  min-height: 12px;
+}
+
+.step-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background-color: var(--bg-elevated);
+  transition: background-color var(--transition-fast),
+    transform var(--transition-fast);
+}
+
+.step-dot.active {
+  background-color: var(--accent);
+  opacity: 0.5;
+}
+
+.step-dot.current {
+  background-color: var(--accent);
+  opacity: 1;
+  transform: scale(1.3);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .narration-enter,
+  .narration-exit {
+    animation: none;
+  }
+
+  .step-dot.current {
+    transform: none;
+  }
+}
+
+/* ============================================================================
+   20. V5 INSIGHT CARDS
+   ============================================================================ */
+
+.insight-cards-container {
+  padding: 0 var(--gutters-mobile);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+  margin-bottom: var(--space-base);
+}
+
+.insight-card {
+  position: relative;
+  background-color: var(--bg-card);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
+  border-radius: var(--border-radius-sm);
+  padding: var(--space-md) var(--space-base);
+  cursor: pointer;
+  transition: opacity var(--transition-fast), transform var(--transition-fast);
+}
+
+.insight-card:active {
+  opacity: 0.85;
+}
+
+.insight-card.dismissing {
+  opacity: 0;
+  transform: translateX(-100%);
+  transition: opacity 0.3s, transform 0.3s;
+}
+
+.insight-dismiss {
+  position: absolute;
+  top: var(--space-sm);
+  right: var(--space-sm);
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-size: var(--font-size-md);
+  cursor: pointer;
+  padding: var(--space-xs);
+  line-height: 1;
+  min-width: 28px;
+  min-height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.insight-dismiss:hover {
+  color: var(--text-secondary);
+}
+
+.insight-header {
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  color: var(--accent);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: var(--space-xs);
+}
+
+.insight-icon {
+  font-size: var(--font-size-lg);
+  margin-bottom: var(--space-xs);
+}
+
+.insight-text {
+  font-size: var(--font-size-sm);
+  color: var(--text-primary);
+  line-height: 1.45;
+  padding-right: var(--space-lg);
+}
+
+.insight-detail {
+  font-size: var(--font-size-sm);
+  color: var(--text-secondary);
+  margin-top: var(--space-xs);
+  line-height: 1.4;
+}
+
+.insight-action {
+  font-size: var(--font-size-sm);
+  color: var(--accent);
+  font-weight: 500;
+  margin-top: var(--space-sm);
+  cursor: pointer;
+}
+
+.insight-action:active {
+  opacity: 0.7;
+}
+
+/* Insight card variants */
+.insight-continuity {
+  border-left-color: var(--text-secondary);
+}
+
+.insight-weekly-summary {
+  border-left-color: var(--success);
+}
+
+.insight-trend {
+  border-left-color: var(--accent);
+}
+
+.insight-best-tool {
+  border-left-color: var(--success);
+}
+
+.insight-streak {
+  border-left-color: var(--warning);
+}
+
+.insight-time {
+  border-left-color: var(--text-secondary);
+}
+
+/* ============================================================================
+   21. V5 SIGNAL HISTORY CHART
+   ============================================================================ */
+
+.signal-chart {
+  padding: var(--space-base) var(--gutters-mobile);
+  margin-bottom: var(--space-lg);
+}
+
+.signal-chart h3 {
+  font-size: var(--font-size-sm);
+  color: var(--text-secondary);
+  font-weight: 600;
+  margin-bottom: var(--space-md);
+}
+
+.signal-chart-grid {
+  display: grid;
+  grid-template-columns: auto repeat(14, 1fr);
+  gap: 4px;
+  align-items: center;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.signal-chart-label {
+  font-size: 11px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  padding-right: var(--space-sm);
+  text-align: right;
+}
+
+.signal-chart-day-label {
+  font-size: 10px;
+  color: var(--text-muted);
+  text-align: center;
+}
+
+.signal-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  margin: 0 auto;
+  transition: opacity var(--transition-fast);
+}
+
+.signal-dot.level-none {
+  background-color: var(--text-muted);
+  opacity: 0.1;
+}
+
+.signal-dot.level-0 {
+  background-color: var(--success);
+  opacity: 0.15;
+}
+
+.signal-dot.level-1 {
+  background-color: var(--accent);
+  opacity: 0.6;
+}
+
+.signal-dot.level-2 {
+  background-color: var(--warning);
+  opacity: 1.0;
+}
+
+/* ============================================================================
+   22. V5 EXERCISE REPORT CARD
+   ============================================================================ */
+
+.exercise-report-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background-color: rgba(0, 0, 0, 0.7);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 200;
+  animation: fadeIn var(--transition-fast);
+  padding: var(--gutters-mobile);
+}
+
+.exercise-report-card {
+  background-color: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--border-radius-md);
+  padding: var(--space-xl);
+  max-width: 340px;
+  width: 100%;
+  text-align: center;
+  animation: slideUp 0.3s ease-out;
+}
+
+.exercise-report-card h3 {
+  font-size: var(--font-size-md);
+  color: var(--text-primary);
+  margin-bottom: var(--space-md);
+  font-weight: 600;
+}
+
+.report-shifts {
+  margin-bottom: var(--space-md);
+}
+
+.report-shift-line {
+  font-size: var(--font-size-sm);
+  color: var(--text-primary);
+  padding: var(--space-xs) 0;
+}
+
+.report-shift-line .shift-arrow {
+  color: var(--success);
+}
+
+.report-context {
+  font-size: var(--font-size-sm);
+  color: var(--text-secondary);
+  line-height: 1.5;
+  margin-bottom: var(--space-md);
+}
+
+.report-context p {
+  margin: var(--space-xs) 0;
+}
+
+.exercise-report-card .btn {
+  margin-top: var(--space-sm);
+}
+
+@keyframes slideUp {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* ============================================================================
+   23. V6 DAILY PRACTICE CARD
+   ============================================================================ */
+
+.practice-card {
+  background-color: var(--bg-card);
+  border: 1px solid var(--accent);
+  border-left: 6px solid var(--accent);
+  border-radius: var(--border-radius-md);
+  padding: var(--space-lg) var(--space-base);
+  margin-bottom: var(--space-lg);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
+  transition: border-color var(--transition-base), opacity var(--transition-base);
+}
+
+.practice-card.completed {
+  border-color: var(--border);
+  border-left-color: var(--success);
+  opacity: 0.7;
+}
+
+.practice-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: var(--space-md);
+}
+
+.practice-label {
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  color: var(--accent);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.practice-streak {
+  font-size: var(--font-size-sm);
+  color: var(--warning);
+  font-weight: 500;
+}
+
+.practice-body {
+  margin-bottom: var(--space-base);
+}
+
+.practice-title {
+  font-size: var(--font-size-lg);
+  font-weight: 700;
+  color: var(--text-primary);
+  line-height: var(--line-height-heading);
+  margin-bottom: var(--space-xs);
+}
+
+.practice-meta {
+  font-size: var(--font-size-sm);
+  color: var(--text-muted);
+  margin-bottom: var(--space-sm);
+}
+
+.practice-reason {
+  font-size: var(--font-size-sm);
+  color: var(--text-secondary);
+  line-height: var(--line-height-body);
+}
+
+.practice-done {
+  font-size: var(--font-size-base);
+  color: var(--success);
+  font-weight: 500;
+}
+
+.practice-action {
+  margin-top: var(--space-sm);
+}
+
+/* ============================================================================
+   24. V6 RELIEF SECTION
+   ============================================================================ */
+
+.relief-section {
+  margin-bottom: var(--space-lg);
+}
+
+.relief-header {
+  margin-bottom: var(--space-md);
+}
+
+.section-label {
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.relief-section .signal-section {
+  margin-bottom: var(--space-base);
+}
+
+.relief-section .quick-actions {
+  padding-top: 0;
 }
 
 /* ============================================================================

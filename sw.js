@@ -1,7 +1,7 @@
 // Steady — Service Worker
 // Caches core shell for offline usage, network-first for data
 
-const CACHE_NAME = 'steady-v1';
+const CACHE_NAME = 'steady-v6';
 const SHELL_ASSETS = [
   './',
   './index.html',
@@ -10,6 +10,8 @@ const SHELL_ASSETS = [
   './js/data.js',
   './js/storage.js',
   './js/player.js',
+  './js/idb.js',
+  './js/insights.js',
   './manifest.json',
   './icons/icon-192.png',
   './icons/icon-512.png',
