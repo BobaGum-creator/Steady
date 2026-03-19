@@ -1,1872 +1,1373 @@
-/**
- * Steady - Main Application Module (V5)
- *
- * Orchestrates all views, handles routing, wires up player, storage, and data modules.
- * V2: theme toggle, favorites, recommendations, audio cues, weekly chart, share, reminders.
- * V3: outcome-based recommendations, onboarding flow, narration layer, haptic feedback.
- * V4: 4-signal state check system replacing single stress slider.
- * V5: Insight cards, signal history chart, exercise report card, smart defaults, weekly summary.
- */
+// Steady App - Main Application Logic
+// ES Module for hash-based SPA routing, no framework, plain JavaScript
 
-import { exercises, getExercise, getExercisesByCategory, getTrainingExercises, getReliefExercises, categories } from './data.js';
-import * as storage from './storage.js';
-import { createPlayer } from './player.js';
-import { getInsights, getExerciseReport, getSignalChartData } from './insights.js';
+import { exercises, challengeDayMap, intentionCategories, signalDefinitions, challengePhases, getCognitiveTierForDay, getDisruptionCountForDay } from './data.js';
+import { ExercisePlayer, formatTime } from './player.js';
+import {
+  getSessions, addSession, saveDailyPractice, getDailyPractice,
+  getStreak, getLongestStreak, getProfile, saveProfile, getSettings, saveSettings,
+  getBookmarks, toggleBookmark, saveJournalEntry, getJournalEntries,
+  saveReflection, getReflections, getChallengeProgram, saveChallengeProgram,
+  advanceChallengeDay, isChallengeUnlocked, resetChallenge, getIntentionStats,
+  saveCheckIn, getDismissedInsights, dismissInsight, exportAllData, importAllData,
+  clearAllData, getWeeklyActivity, getMonthlySessionCount, getMostUsedExercises,
+  getExerciseEffectiveness
+} from './storage.js';
+import { getActiveInsights, getReliefRecommendation } from './insights.js';
+import { initDB, syncBackup } from './idb.js';
 
-// ============================================================================
-// STATE & CONFIGURATION
-// ============================================================================
-
-// ============================================================================
-// V4 SIGNAL DEFINITIONS
-// ============================================================================
-
-const SIGNALS = {
-  mind: {
-    id: 'mind',
-    name: 'Mind Speed',
-    icon: '<svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="3" stroke="currentColor" stroke-width="1.5"/><circle cx="12" cy="12" r="7" stroke="currentColor" stroke-width="1" opacity=".35"/></svg>',
-    cardLabel: 'Racing Mind',
-    cardHint: "Thoughts won't quiet down",
-    levels: ['Calm', 'Busy', 'Racing'],
-    recommendation: 'Good for racing thoughts',
-  },
-  body: {
-    id: 'body',
-    name: 'Body Tension',
-    icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="8" y1="5" x2="8" y2="19"/><line x1="16" y1="5" x2="16" y2="19"/></svg>',
-    cardLabel: 'Tight Body',
-    cardHint: 'Tension in muscles or jaw',
-    levels: ['Loose', 'Tight', 'Locked'],
-    recommendation: 'Targets body tension',
-  },
-  breath: {
-    id: 'breath',
-    name: 'Breathing',
-    icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M2 12c2-4 4-4 6 0s4 4 6 0 4-4 6 0"/></svg>',
-    cardLabel: 'Shallow Breathing',
-    cardHint: "Can't take a full breath",
-    levels: ['Deep', 'Shallow', 'Stuck'],
-    recommendation: 'Opens up your breathing',
-  },
-  pressure: {
-    id: 'pressure',
-    name: 'Internal Pressure',
-    icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="7,15 12,10 17,15"/><polyline points="7,19 12,14 17,19"/></svg>',
-    cardLabel: 'Internal Pressure',
-    cardHint: 'Restless or uneasy feeling',
-    levels: ['Settled', 'Uneasy', 'Intense'],
-    recommendation: 'Eases internal pressure',
-  },
-};
-
-const SIGNAL_IDS = ['mind', 'body', 'breath', 'pressure'];
-
-const appState = {
-  currentView: 'home',
-  currentExerciseId: null,
-  player: null,
-  preSignals: null,   // V4: { mind: 0-2, body: 0-2, breath: 0-2, pressure: 0-2 }
-  postSignals: null,   // V4: same shape
-  journalEntries: [],
-  deferredPrompt: null,
-  audioCtx: null,
-  activeSignal: null,  // V4: which signal the user tapped on home screen
-  practiceExerciseId: null, // V6: tracks if current exercise is the daily practice
-};
-
-// ============================================================================
-// UTILITY FUNCTIONS
-// ============================================================================
-
-function formatDuration(seconds) {
-  const mins = Math.floor(seconds / 60);
-  const secs = seconds % 60;
-  return `${mins}:${String(secs).padStart(2, '0')}`;
-}
-
-function formatTime(seconds) {
-  const mins = Math.floor(seconds / 60);
-  const secs = seconds % 60;
-  return `${mins}:${String(secs).padStart(2, '0')}`;
-}
-
-function getTimeOfDay() {
-  const hour = new Date().getHours();
-  if (hour < 12) return 'morning';
-  if (hour < 17) return 'afternoon';
-  return 'evening';
-}
-
-function $(id) {
-  return document.getElementById(id);
-}
-
-function showToast(message, duration = 3000) {
-  // Remove any existing toast
-  document.querySelectorAll('.toast').forEach(t => t.remove());
-  const toast = document.createElement('div');
-  toast.className = 'toast';
-  toast.textContent = message;
-  document.body.appendChild(toast);
-  setTimeout(() => {
-    toast.style.opacity = '0';
-    toast.style.transition = 'opacity 0.3s';
-    setTimeout(() => toast.remove(), 300);
-  }, duration);
-}
-
-function formatDateDisplay(dateStr) {
-  const today = storage.getToday();
-  if (dateStr === today) return 'Today';
-  const yesterday = new Date();
-  yesterday.setDate(yesterday.getDate() - 1);
-  const yesterdayStr = yesterday.toISOString().split('T')[0];
-  if (dateStr === yesterdayStr) return 'Yesterday';
-  const date = new Date(dateStr + 'T12:00:00');
-  return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-}
-
-function escapeHtml(text) {
-  if (text == null) return '';
-  const div = document.createElement('div');
-  div.textContent = String(text);
-  return div.innerHTML;
-}
-
-// ============================================================================
-// AUDIO CUES (Web Audio API — no files needed)
-// ============================================================================
-
-function getAudioCtx() {
-  if (!appState.audioCtx) {
-    appState.audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+class SteadyApp {
+  constructor() {
+    this.player = new ExercisePlayer();
+    this.currentView = 'home';
+    this.currentFilter = 'all';
+    this.selectedIntention = null;
+    this.recommendedExercise = null;
+    this.deferredInstallPrompt = null;
+    this.playerMode = null;
+    this.init();
   }
-  return appState.audioCtx;
-}
 
-/** Play a gentle chime — frequency and duration define the tone */
-function playChime(freq = 528, durationMs = 300, volume = 0.15) {
-  const settings = storage.getSettings();
-  if (!settings.sound) return;
-  try {
-    const ctx = getAudioCtx();
-    const osc = ctx.createOscillator();
-    const gain = ctx.createGain();
-    osc.type = 'sine';
-    osc.frequency.setValueAtTime(freq, ctx.currentTime);
-    gain.gain.setValueAtTime(volume, ctx.currentTime);
-    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + durationMs / 1000);
-    osc.connect(gain);
-    gain.connect(ctx.destination);
-    osc.start(ctx.currentTime);
-    osc.stop(ctx.currentTime + durationMs / 1000);
-  } catch (e) {
-    // Audio not available — silent fallback
-  }
-}
+  async init() {
+    // Initialize IDB backup
+    await initDB();
 
-function playStepChime()    { playChime(528, 300, 0.12); }
-function playCompleteChime(){ playChime(660, 500, 0.15); setTimeout(() => playChime(880, 400, 0.10), 250); }
-function playInhaleChime()  { playChime(396, 200, 0.06); }
-function playExhaleChime()  { playChime(264, 250, 0.06); }
+    // Load settings and apply theme
+    const settings = getSettings();
+    this.applyTheme(settings.theme);
+    this.applyReducedMotion(settings.reducedMotion);
 
-// ============================================================================
-// HAPTIC FEEDBACK (Vibration API — mobile only, graceful no-op on desktop)
-// ============================================================================
+    // Check onboarding
+    const profile = getProfile();
+    if (!profile.completed) {
+      const onboardingEl = document.getElementById('onboarding');
+      if (onboardingEl) {
+        onboardingEl.style.display = 'flex';
+      }
+    }
 
-function canVibrate() {
-  return 'vibrate' in navigator;
-}
+    // Setup routing
+    this.setupRouting();
 
-/** Gentle tap — step transitions */
-function hapticTap() {
-  if (!canVibrate()) return;
-  const settings = storage.getSettings();
-  if (settings.reducedMotion) return;
-  navigator.vibrate(15);
-}
+    // Setup player callbacks
+    this.setupPlayerCallbacks();
 
-/** Soft double-pulse — completion */
-function hapticComplete() {
-  if (!canVibrate()) return;
-  const settings = storage.getSettings();
-  if (settings.reducedMotion) return;
-  navigator.vibrate([30, 60, 30]);
-}
+    // Register service worker
+    this.registerSW();
 
-/** Inhale rhythm — slow ramp-like pulse */
-function hapticInhale() {
-  if (!canVibrate()) return;
-  const settings = storage.getSettings();
-  if (settings.reducedMotion) return;
-  navigator.vibrate([8, 40, 8, 40, 8]);
-}
-
-/** Exhale rhythm — single gentle pulse */
-function hapticExhale() {
-  if (!canVibrate()) return;
-  const settings = storage.getSettings();
-  if (settings.reducedMotion) return;
-  navigator.vibrate(12);
-}
-
-/** Hold rhythm — very faint single pulse */
-function hapticHold() {
-  if (!canVibrate()) return;
-  const settings = storage.getSettings();
-  if (settings.reducedMotion) return;
-  navigator.vibrate(5);
-}
-
-// ============================================================================
-// THEME
-// ============================================================================
-
-function applyTheme(theme) {
-  document.body.classList.remove('theme-light');
-  if (theme === 'light') {
-    document.body.classList.add('theme-light');
-  } else if (theme === 'auto') {
-    const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
-    if (!prefersDark) document.body.classList.add('theme-light');
-  }
-  // Update meta theme-color
-  const meta = document.querySelector('meta[name="theme-color"]');
-  if (meta) {
-    const isLight = document.body.classList.contains('theme-light');
-    meta.setAttribute('content', isLight ? '#f5f2ed' : '#1a1d21');
-  }
-}
-
-// ============================================================================
-// SERVICE WORKER & PWA
-// ============================================================================
-
-function registerServiceWorker() {
-  if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.register('./sw.js').catch(() => {});
-  }
-}
-
-function setupPWAInstall() {
-  window.addEventListener('beforeinstallprompt', (e) => {
-    e.preventDefault();
-    appState.deferredPrompt = e;
-    const installBtn = $('btn-install');
-    if (installBtn) installBtn.style.display = 'block';
-  });
-  window.addEventListener('appinstalled', () => {
-    appState.deferredPrompt = null;
-    const installBtn = $('btn-install');
-    if (installBtn) installBtn.style.display = 'none';
-  });
-  const installBtn = $('btn-install');
-  if (installBtn) {
-    installBtn.addEventListener('click', async () => {
-      if (!appState.deferredPrompt) return;
-      appState.deferredPrompt.prompt();
-      await appState.deferredPrompt.userChoice;
-      appState.deferredPrompt = null;
+    // Listen for install prompt
+    window.addEventListener('beforeinstallprompt', (e) => {
+      e.preventDefault();
+      this.deferredInstallPrompt = e;
+      const installBtn = document.getElementById('install-btn');
+      if (installBtn) {
+        installBtn.style.display = 'block';
+      }
     });
-  }
-}
 
-// ============================================================================
-// NAVIGATION
-// ============================================================================
+    // Initial render
+    this.renderCurrentView();
 
-function navigate(viewName) {
-  document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
-  const target = $(`view-${viewName}`);
-  if (target) target.classList.add('active');
-
-  document.querySelectorAll('.nav-tab').forEach(t => t.classList.remove('active'));
-  const tab = document.querySelector(`[data-view="${viewName}"]`);
-  if (tab) tab.classList.add('active');
-
-  const nav = $('bottom-nav');
-  if (nav) nav.style.display = viewName === 'player' ? 'none' : 'flex';
-
-  appState.currentView = viewName;
-
-  if (viewName === 'home')     initHome();
-  if (viewName === 'library')  initLibrary();
-  if (viewName === 'journal')  initJournal();
-  if (viewName === 'history')  initHistory();
-  if (viewName === 'settings') initSettings();
-}
-
-function setupNavigation() {
-  document.querySelectorAll('.nav-tab').forEach(tab => {
-    tab.addEventListener('click', () => navigate(tab.getAttribute('data-view')));
-  });
-  window.addEventListener('hashchange', () => {
-    const hash = location.hash.slice(1);
-    if (hash.startsWith('player/')) {
-      startExercise(hash.split('/')[1]);
-    } else if (hash) {
-      navigate(hash);
-    }
-  });
-}
-
-// ============================================================================
-// V6: RELIEF EXERCISE RECOMMENDATIONS
-// ============================================================================
-
-/**
- * Find the best relief exercise for a given signal.
- * Scores by signal match, personal effectiveness data, and evidence level.
- */
-function getReliefRecommendation(signalId) {
-  const reliefExercises = getReliefExercises();
-  const todaySessions = storage.getTodaySessions();
-  const usedIds = new Set(todaySessions.map(s => s.exerciseId));
-  const signalEff = storage.getSignalEffectiveness(90);
-
-  const scored = reliefExercises.map(ex => {
-    let score = 0;
-    let reason = '';
-
-    // Signal match (primary criterion)
-    if (ex.signals && ex.signals.includes(signalId)) {
-      score += 5;
-      reason = SIGNALS[signalId].recommendation;
-    }
-
-    // Personal effectiveness for this signal
-    const sigData = signalEff.get(ex.id);
-    if (sigData && sigData.count >= 2 && sigData[signalId] > 0.5) {
-      score += 4;
-      reason = `Your best tool for ${SIGNALS[signalId].name.toLowerCase()}`;
-    }
-
-    // Prefer strong evidence
-    if (ex.evidenceLevel === 'strong') score += 2;
-    if (ex.evidenceLevel === 'moderate') score += 1;
-
-    // Slight penalty for already-used-today
-    if (usedIds.has(ex.id)) score -= 1;
-
-    // Boost favorites
-    if (storage.isFavorite(ex.id)) score += 1;
-
-    return { exercise: ex, score, reason: reason || 'Recommended for you' };
-  });
-
-  scored.sort((a, b) => b.score - a.score);
-  return scored[0] || null;
-}
-
-// ============================================================================
-// HOME VIEW
-// ============================================================================
-
-function initHome() {
-  const time = getTimeOfDay();
-  const tagline = $('home-tagline');
-  if (tagline) {
-    const lines = { morning: 'Build your baseline.', afternoon: 'Train your resilience.', evening: 'Wind down stronger.' };
-    tagline.textContent = lines[time] || 'Train your resilience.';
+    // Setup reminder notification
+    this.setupReminder();
   }
 
-  renderPracticeCard();
-  setupSignalGrid();
-  renderInsightCards();
+  // ============================================
+  // ROUTING & NAVIGATION
+  // ============================================
 
-  const btnEmergency = $('btn-emergency');
-  if (btnEmergency) btnEmergency.onclick = () => startExercise('physiological-sigh');
-
-  updateRecentExercises();
-}
-
-// ============================================================================
-// V6: DAILY PRACTICE CARD
-// ============================================================================
-
-function getDailyPractice() {
-  // Select today's training exercise
-  const trainingExercises = getTrainingExercises();
-  const recentIds = storage.getRecentPracticeIds(5);
-  const today = storage.getToday();
-
-  // Deterministic daily rotation: use day-of-year as seed
-  const dayOfYear = Math.floor((new Date(today) - new Date(new Date().getFullYear(), 0, 0)) / 86400000);
-
-  // Filter out recently practiced exercises to add variety
-  let candidates = trainingExercises.filter(ex => !recentIds.includes(ex.id));
-  if (candidates.length === 0) candidates = trainingExercises; // fallback if all recently used
-
-  // Pick exercise based on day rotation
-  const idx = dayOfYear % candidates.length;
-  return candidates[idx];
-}
-
-const PRACTICE_REASONS = {
-  'resonant-breathing': 'Trains your nervous system to shift into recovery mode.',
-  'extended-exhale': 'Builds breath control — your fastest lever against stress.',
-  'pmr-short': 'Teaches your body the difference between tension and release.',
-  'name-the-story': 'Builds the skill of watching thoughts without believing them.',
-  'leaves-on-stream': 'Trains sustained attention — the foundation of resilience.',
-  'orienting-response': 'Teaches your nervous system that the environment is safe.',
-  'pendulation': 'Builds nervous system flexibility — the core of resilience.',
-  'tremor-release': 'Releases stored tension your body is holding from stress.',
-  'box-breathing': 'Trains controlled breathing under any conditions.',
-  'body-scan': 'Builds body awareness — notice stress before it builds.',
-  'cold-exposure-breathing': 'Builds stress tolerance by training controlled activation.',
-};
-
-function renderPracticeCard() {
-  const body = $('practice-body');
-  const streakEl = $('practice-streak');
-  const btn = $('btn-practice');
-  const card = $('practice-card');
-  if (!body || !btn || !card) return;
-
-  const todayPractice = storage.getTodayPractice();
-  const practiceStreak = storage.getPracticeStreak();
-
-  // Show streak
-  if (streakEl) {
-    if (practiceStreak.current > 0) {
-      streakEl.textContent = `${practiceStreak.current} day streak`;
-    } else {
-      streakEl.textContent = '';
-    }
+  setupRouting() {
+    window.addEventListener('hashchange', () => this.handleRoute());
+    this.handleRoute();
   }
 
-  if (todayPractice.completed) {
-    // Already done today
-    const ex = getExercise(todayPractice.exerciseId);
-    card.classList.add('completed');
-    body.innerHTML = `
-      <div class="practice-title">${ex ? ex.title : 'Practice'}</div>
-      <div class="practice-done">Done for today.</div>
-    `;
-    btn.textContent = 'Completed';
-    btn.disabled = true;
-  } else {
-    // Select today's exercise
-    const ex = getDailyPractice();
-    card.classList.remove('completed');
-    const reason = PRACTICE_REASONS[ex.id] || 'Builds regulation skill over time.';
-    body.innerHTML = `
-      <div class="practice-title">${ex.title}</div>
-      <div class="practice-meta">${formatDuration(ex.duration)}</div>
-      <div class="practice-reason">${reason}</div>
-    `;
-    btn.textContent = 'Begin Practice';
-    btn.disabled = false;
-    btn.onclick = () => {
-      appState.practiceExerciseId = ex.id;
-      startExercise(ex.id);
+  handleRoute() {
+    const hash = window.location.hash.slice(1) || 'home';
+    const viewMap = {
+      home: 'home',
+      library: 'library',
+      player: 'player',
+      journal: 'journal',
+      history: 'history',
+      settings: 'settings'
     };
-  }
-}
-
-function setupSignalGrid() {
-  const grid = $('signal-grid');
-  if (!grid) return;
-
-  // Restore today's check-in if exists
-  const checkIn = storage.getTodayCheckIn();
-  if (checkIn && checkIn.primarySignal) {
-    appState.activeSignal = checkIn.primarySignal;
-    grid.querySelectorAll('.signal-card').forEach(card => {
-      card.classList.toggle('selected', card.dataset.signal === checkIn.primarySignal);
-    });
-    // Show recommendation for restored signal
-    showReliefRecommendation(checkIn.primarySignal);
+    const view = viewMap[hash] || 'home';
+    this.showView(view);
   }
 
-  grid.querySelectorAll('.signal-card').forEach(card => {
-    card.addEventListener('click', () => {
-      const signal = card.dataset.signal;
-      // Toggle selection
-      grid.querySelectorAll('.signal-card').forEach(c => c.classList.remove('selected'));
-      card.classList.add('selected');
-      appState.activeSignal = signal;
-      hapticTap();
-
-      // Save check-in
-      storage.saveCheckIn(signal);
-
-      // Show inline relief recommendation
-      showReliefRecommendation(signal);
-    });
-  });
-}
-
-/**
- * V6: Show a relief exercise recommendation inline below the signal grid.
- */
-function showReliefRecommendation(signalId) {
-  const container = $('relief-recommendation');
-  if (!container) return;
-
-  const rec = getReliefRecommendation(signalId);
-  if (!rec) {
-    container.style.display = 'none';
-    return;
+  navigate(view) {
+    window.location.hash = view;
   }
 
-  const ex = rec.exercise;
-  container.style.display = 'block';
-  container.innerHTML = `
-    <div class="relief-rec-card" data-exercise-id="${ex.id}">
-      <div class="relief-rec-indicator" data-category="${ex.category}"></div>
-      <div class="relief-rec-body">
-        <div class="relief-rec-title">${ex.title}</div>
-        <div class="relief-rec-meta">${formatDuration(ex.duration)} · ${rec.reason}</div>
-      </div>
-      <button class="btn btn-primary btn-small relief-rec-start">Start</button>
-    </div>`;
+  showView(view) {
+    this.currentView = view;
+    document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
+    const el = document.getElementById(`view-${view}`);
+    if (el) {
+      el.classList.add('active');
+    }
 
-  // Wire up click
-  const card = container.querySelector('.relief-rec-card');
-  if (card) card.addEventListener('click', () => startExercise(ex.id));
-}
+    // Update tab bar
+    document.querySelectorAll('.tab').forEach(t => {
+      t.classList.toggle('active', t.dataset.view === view);
+    });
 
-function updateRecentExercises() {
-  const list = $('recent-list');
-  const section = $('recent-section');
-  if (!list || !section) return;
-  const top = storage.getMostUsedExercises(30).slice(0, 3);
-  if (top.length === 0) { section.style.display = 'none'; return; }
-  section.style.display = 'block';
-  list.innerHTML = top.map(item => {
-    const ex = getExercise(item.exerciseId);
-    if (!ex) return '';
-    return `<div class="recent-card" data-exercise-id="${ex.id}" data-category="${ex.category}">
-      <div class="recent-indicator"></div>
-      <div class="recent-info">
-        <div class="recent-title">${ex.title}</div>
-        <div class="recent-meta">${item.count}x${item.avgReduction > 0 ? ` · ${item.avgReduction.toFixed(1)} point relief` : ''}</div>
-      </div></div>`;
-  }).join('');
-  list.querySelectorAll('.recent-card').forEach(c => {
-    c.addEventListener('click', () => startExercise(c.dataset.exerciseId));
-  });
-}
+    // Hide tab bar during player
+    const tabBar = document.querySelector('.tab-bar');
+    if (tabBar) {
+      tabBar.style.display = view === 'player' ? 'none' : 'flex';
+    }
 
-// ============================================================================
-// V5: INSIGHT CARDS
-// ============================================================================
-
-function renderInsightCards() {
-  const container = $('insight-cards');
-  if (!container) return;
-
-  // Build data object for insight engine
-  const data = {
-    checkInHistory: storage.getCheckInHistory(14),
-    recentSessions: storage.getRecentSessions(30),
-    signalEffectiveness: storage.getSignalEffectiveness(90),
-    streak: storage.getStreak(),
-    activeSignal: appState.activeSignal,
-    exercises,
-  };
-
-  const insightResults = getInsights(data);
-
-  if (insightResults.length === 0) {
-    container.innerHTML = '';
-    return;
+    // Render view content
+    this.renderView(view);
   }
 
-  container.innerHTML = insightResults.map(r => r.html).join('');
-  wireInsightActions(container);
-}
+  renderView(view) {
+    switch (view) {
+      case 'home':
+        this.renderHome();
+        break;
+      case 'library':
+        this.renderLibrary();
+        break;
+      case 'journal':
+        this.renderJournal();
+        break;
+      case 'history':
+        this.renderProgress();
+        break;
+      case 'settings':
+        this.renderSettings();
+        break;
+    }
+  }
 
-function wireInsightActions(container) {
-  // Dismiss buttons
-  container.querySelectorAll('.insight-dismiss').forEach(btn => {
-    btn.addEventListener('click', (e) => {
-      e.stopPropagation();
-      const card = btn.closest('.insight-card');
-      const insightId = card?.dataset.insight;
-      if (insightId) {
-        card.classList.add('dismissing');
-        setTimeout(() => {
-          storage.dismissInsight(insightId);
-          renderInsightCards();
-        }, 300);
+  // ============================================
+  // HOME VIEW
+  // ============================================
+
+  renderHome() {
+    // Streak display (top-right)
+    const streak = getStreak();
+    const streakEl = document.getElementById('home-streak');
+    const streakCount = document.getElementById('home-streak-count');
+    if (streakEl && streakCount) {
+      if (streak > 0) {
+        streakEl.style.display = 'flex';
+        streakCount.textContent = `${streak} day${streak !== 1 ? 's' : ''}`;
+      } else {
+        streakEl.style.display = 'none';
       }
-    });
-  });
+    }
 
-  // Action links
-  container.querySelectorAll('.insight-action').forEach(link => {
-    link.addEventListener('click', (e) => {
-      e.stopPropagation();
-      const action = link.dataset.action;
+    // Ensure challenge program is initialized (program-first approach)
+    this.ensureProgramStarted();
 
-      if (action === 'select-signal') {
-        const signal = link.dataset.signal;
-        if (signal) {
-          appState.activeSignal = signal;
-          storage.saveCheckIn(signal);
-          const grid = $('signal-grid');
-          if (grid) {
-            grid.querySelectorAll('.signal-card').forEach(c => {
-              c.classList.toggle('selected', c.dataset.signal === signal);
-            });
-          }
-          showRecommendation();
-          // Scroll to recommendation
-          const recCard = $('recommendation-card');
-          if (recCard) recCard.scrollIntoView({ behavior: 'smooth', block: 'center' });
-        }
-      }
+    // Render the training hero block
+    this.renderTrainingHero();
+  }
 
-      if (action === 'start-exercise') {
-        const exerciseId = link.dataset.exercise;
-        if (exerciseId) startExercise(exerciseId);
-      }
+  /**
+   * Ensure the challenge program is started for every user.
+   * Program-first: no unlock gate, everyone is in the program from day 1.
+   */
+  ensureProgramStarted() {
+    const program = getChallengeProgram();
+    if (!program.unlocked) {
+      program.unlocked = true;
+      saveChallengeProgram(program);
+    }
+  }
 
-      if (action === 'dismiss-weekly') {
-        const card = link.closest('.insight-card');
-        if (card) {
-          card.classList.add('dismissing');
-          setTimeout(() => {
-            // The weekly summary insight's action() handles the dismissal in storage
-            const weekOf = getISOWeekString();
-            storage.dismissWeeklySummary(weekOf);
-            renderInsightCards();
-          }, 300);
-        }
-      }
-    });
-  });
+  /**
+   * Render the unified training hero block on the homepage.
+   * Combines what was previously the daily practice card + challenge card.
+   */
+  renderTrainingHero() {
+    const program = getChallengeProgram();
+    const totalDays = 28;
+    const level = program.level || 1;
+    const today = new Date().toISOString().split('T')[0];
+    const todayPractice = getDailyPractice(today);
+    const todayDone = todayPractice && todayPractice.completed;
 
-  // Card click (for signal trend — tap to select signal)
-  container.querySelectorAll('.insight-card[data-signal]').forEach(card => {
-    card.addEventListener('click', () => {
-      const signal = card.dataset.signal;
-      if (signal) {
-        appState.activeSignal = signal;
-        storage.saveCheckIn(signal);
-        showRecommendation();
-      }
-    });
-  });
+    const heroEl = document.getElementById('training-hero');
+    const ctaEl = document.getElementById('training-cta');
+    const doneEl = document.getElementById('training-done');
+    const levelCompleteEl = document.getElementById('training-level-complete');
 
-  // Card click for best tool — tap to start exercise
-  container.querySelectorAll('.insight-card[data-exercise]').forEach(card => {
-    card.addEventListener('click', () => {
-      const exerciseId = card.dataset.exercise;
-      if (exerciseId) startExercise(exerciseId);
-    });
-  });
-}
+    // Level complete state
+    if (program.currentDay > totalDays) {
+      if (ctaEl) ctaEl.style.display = 'none';
+      if (doneEl) doneEl.style.display = 'none';
+      if (levelCompleteEl) levelCompleteEl.style.display = 'block';
 
-function getISOWeekString() {
-  const d = new Date();
-  d.setHours(0, 0, 0, 0);
-  d.setDate(d.getDate() + 3 - ((d.getDay() + 6) % 7));
-  const week1 = new Date(d.getFullYear(), 0, 4);
-  const weekNum = 1 + Math.round(((d - week1) / 86400000 - 3 + ((week1.getDay() + 6) % 7)) / 7);
-  return `${d.getFullYear()}-W${String(weekNum).padStart(2, '0')}`;
-}
-
-// ============================================================================
-// LIBRARY VIEW (with favorites)
-// ============================================================================
-
-function initLibrary() {
-  setupCategoryFilters();
-  populateExerciseList('all');
-}
-
-function setupCategoryFilters() {
-  const pills = document.querySelectorAll('.category-pills .pill');
-  pills.forEach(pill => {
-    pill.onclick = () => {
-      pills.forEach(p => p.classList.remove('active'));
-      pill.classList.add('active');
-      populateExerciseList(pill.dataset.category);
-    };
-  });
-}
-
-function populateExerciseList(category) {
-  const list = $('exercise-list');
-  if (!list) return;
-
-  let filtered = exercises;
-  if (category === 'favorites') {
-    const favs = storage.getFavorites();
-    filtered = exercises.filter(ex => favs.includes(ex.id));
-    if (filtered.length === 0) {
-      list.innerHTML = '<p class="empty-state">No saved exercises yet. Tap the bookmark on any exercise to save it here.</p>';
+      // Still show progress as 100%
+      const phaseEl = document.getElementById('training-phase');
+      if (phaseEl) phaseEl.textContent = `Level ${level} · Complete`;
+      const fillEl = document.getElementById('training-progress-fill');
+      if (fillEl) fillEl.style.width = '100%';
+      const labelEl = document.getElementById('training-progress-label');
+      if (labelEl) labelEl.textContent = '28 of 28 days';
+      const titleEl = document.getElementById('training-title');
+      if (titleEl) titleEl.textContent = '';
+      const descEl = document.getElementById('training-desc');
+      if (descEl) descEl.textContent = '';
+      const previewEl = document.getElementById('training-preview');
+      if (previewEl) previewEl.innerHTML = '';
       return;
     }
-  } else if (category === 'training') {
-    filtered = getTrainingExercises();
-  } else if (category === 'relief') {
-    filtered = getReliefExercises();
-  } else if (category !== 'all') {
-    filtered = getExercisesByCategory(category);
-  }
 
-  list.innerHTML = filtered.map(ex => {
-    const isFav = storage.isFavorite(ex.id);
-    return `<div class="exercise-card" data-exercise-id="${ex.id}" data-category="${ex.category}">
-      <div class="exercise-card-icon">${ex.icon}</div>
-      <div class="exercise-card-body">
-        <h3>${ex.title}</h3>
-        <p>${ex.subtitle}</p>
-        <div class="exercise-card-meta">
-          <span class="duration-badge">${formatDuration(ex.duration)}</span>
-          <span class="evidence-badge evidence-${ex.evidenceLevel}">${ex.evidenceLevel}</span>
-        </div>
-      </div>
-      <button class="fav-btn ${isFav ? 'favorited' : ''}" data-fav-id="${ex.id}" aria-label="Toggle favorite">${isFav ? '<svg viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="1.5"><path d="M5 4h14v16l-7-4-7 4V4z"/></svg>' : '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M5 4h14v16l-7-4-7 4V4z"/></svg>'}</button>
-    </div>`;
-  }).join('');
+    // Hide level complete
+    if (levelCompleteEl) levelCompleteEl.style.display = 'none';
 
-  // Card click → start exercise (but not if clicking fav button)
-  list.querySelectorAll('.exercise-card').forEach(card => {
-    card.addEventListener('click', (e) => {
-      if (e.target.closest('.fav-btn')) return;
-      startExercise(card.dataset.exerciseId);
-    });
-  });
+    // Phase indicator
+    const currentPhase = challengePhases.find(p => p.days.includes(program.currentDay));
+    const phaseName = currentPhase ? currentPhase.name : 'Foundation';
+    const phaseEl = document.getElementById('training-phase');
+    if (phaseEl) phaseEl.textContent = `Level ${level} · ${phaseName}`;
 
-  // Fav button click
-  list.querySelectorAll('.fav-btn').forEach(btn => {
-    btn.addEventListener('click', (e) => {
-      e.stopPropagation();
-      const id = btn.dataset.favId;
-      const nowFav = storage.toggleFavorite(id);
-      btn.innerHTML = nowFav ? '<svg viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="1.5"><path d="M5 4h14v16l-7-4-7 4V4z"/></svg>' : '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M5 4h14v16l-7-4-7 4V4z"/></svg>';
-      btn.classList.toggle('favorited', nowFav);
-      showToast(nowFav ? 'Added to favorites' : 'Removed from favorites', 1500);
-    });
-  });
-}
+    // Progress bar
+    const progress = Math.max(0, (program.currentDay - 1) / totalDays);
+    const fillEl = document.getElementById('training-progress-fill');
+    if (fillEl) fillEl.style.width = `${Math.round(progress * 100)}%`;
+    const labelEl = document.getElementById('training-progress-label');
+    if (labelEl) labelEl.textContent = `Day ${program.currentDay} of ${totalDays}`;
 
-// ============================================================================
-// PLAYER VIEW
-// ============================================================================
+    // Get today's exercise from the challenge map
+    const exerciseId = challengeDayMap[program.currentDay];
+    const exercise = exercises.find(e => e.id === exerciseId);
 
-function startExercise(exerciseId) {
-  const exercise = getExercise(exerciseId);
-  if (!exercise) return;
-  appState.currentExerciseId = exerciseId;
-  appState.preSignals = null;
-  appState.postSignals = null;
-  appState.journalEntries = [];
-  navigate('player');
-  setupPlayerView(exercise);
-}
+    // Title & description
+    const titleEl = document.getElementById('training-title');
+    const descEl = document.getElementById('training-desc');
 
-function setupPlayerView(exercise) {
-  const titleEl = $('player-title');
-  if (titleEl) titleEl.textContent = exercise.title;
-
-  const pre = $('player-pre'), main = $('player-main'), post = $('player-post');
-  if (pre)  pre.style.display  = 'block';
-  if (main) main.style.display = 'none';
-  if (post) post.style.display = 'none';
-
-  setupPreStateCheck();
-  setupPlayerStartButton(exercise);
-  setupPlayerBackButton();
-
-  const timer = $('player-timer');
-  if (timer) timer.textContent = '0:00';
-}
-
-/**
- * V4/V5: Wire up signal-level buttons in the pre-exercise state check.
- * V5: Smart defaults based on home screen signal selection or recent session data.
- */
-function setupPreStateCheck() {
-  const container = $('state-check-pre');
-  if (!container) return;
-
-  // V5: Smart defaults
-  const defaults = getSmartDefaults();
-
-  container.querySelectorAll('.signal-row').forEach(row => {
-    const sig = row.dataset.signal;
-    const defaultLevel = defaults[sig] !== undefined ? defaults[sig] : 1;
-    row.querySelectorAll('.signal-level').forEach(btn => {
-      btn.classList.toggle('selected', parseInt(btn.dataset.level) === defaultLevel);
-    });
-  });
-
-  // Attach click handlers
-  container.querySelectorAll('.signal-level').forEach(btn => {
-    btn.addEventListener('click', () => {
-      const row = btn.closest('.signal-row');
-      row.querySelectorAll('.signal-level').forEach(b => b.classList.remove('selected'));
-      btn.classList.add('selected');
-      hapticTap();
-    });
-  });
-}
-
-/**
- * V5: Compute smart defaults for pre-exercise state check.
- * Priority 1: Home screen signal selection → that signal = 2, others = 1
- * Priority 2: Most recent today session's signalsAfter (continuation)
- * Priority 3: All moderate (current V4 behavior)
- */
-function getSmartDefaults() {
-  // Priority 1: Home screen signal selection
-  if (appState.activeSignal) {
-    const defaults = { mind: 1, body: 1, breath: 1, pressure: 1 };
-    defaults[appState.activeSignal] = 2;
-    return defaults;
-  }
-
-  // Priority 2: Most recent session's signalsAfter (continuation)
-  const todaySessions = storage.getTodaySessions();
-  if (todaySessions.length > 0) {
-    const last = todaySessions[todaySessions.length - 1];
-    if (last.signalsAfter) return { ...last.signalsAfter };
-  }
-
-  // Priority 3: Default all to moderate
-  return { mind: 1, body: 1, breath: 1, pressure: 1 };
-}
-
-/**
- * V4: Read signal levels from a state-check container
- * @param {string} containerId - ID of the state-check element
- * @returns {Object} { mind: 0-2, body: 0-2, breath: 0-2, pressure: 0-2 }
- */
-function readSignalLevels(containerId) {
-  const container = $(containerId);
-  if (!container) return { mind: 1, body: 1, breath: 1, pressure: 1 };
-  const signals = {};
-  container.querySelectorAll('.signal-row').forEach(row => {
-    const sig = row.dataset.signal;
-    const selected = row.querySelector('.signal-level.selected');
-    signals[sig] = selected ? parseInt(selected.dataset.level) : 1;
-  });
-  return signals;
-}
-
-function setupPlayerStartButton(exercise) {
-  const startBtn = $('player-start-btn');
-  if (!startBtn) return;
-  startBtn.onclick = () => {
-    // Read pre-exercise signal levels
-    appState.preSignals = readSignalLevels('state-check-pre');
-    const pre = $('player-pre'), main = $('player-main');
-    if (pre)  pre.style.display  = 'none';
-    if (main) main.style.display = 'block';
-    initializePlayer(exercise);
-  };
-}
-
-function initializePlayer(exercise) {
-  if (appState.player) appState.player.stop();
-
-  appState.player = createPlayer({
-    onStepChange: (step, index, total) => {
-      handleStepChange(step, index, total, exercise);
-      // Audio cue on step change
-      if (step.type === 'breathe-in')       playInhaleChime();
-      else if (step.type === 'breathe-out') playExhaleChime();
-      else                                  playStepChime();
-    },
-    onTick: (elapsed, stepElapsed, stepDuration) => {
-      handleTick(elapsed, stepElapsed, stepDuration, exercise);
-    },
-    onComplete: () => {
-      playCompleteChime();
-      hapticComplete();
-      handleComplete(exercise);
-    },
-  });
-
-  setupPlayerControls();
-
-  if (exercise.id === 'stress-journal') {
-    setupJournalExerciseMode(exercise);
-  } else {
-    const ji = $('journal-inputs');
-    if (ji) ji.style.display = 'none';
-  }
-
-  appState.player.start(exercise);
-}
-
-function handleStepChange(step, index, total, exercise) {
-  const instrEl = $('player-instruction');
-  const progText = $('progress-text');
-  const circleWrap = $('breath-circle-wrap');
-  const circle = $('breath-circle');
-  const label = $('breath-label');
-  const stepIndicator = $('step-indicator');
-
-  // === V3: Narration layer — animated text transitions ===
-  if (instrEl) {
-    // Fade out → update text → fade in
-    instrEl.classList.add('narration-exit');
-    setTimeout(() => {
-      instrEl.textContent = step.instruction;
-      instrEl.classList.remove('narration-exit');
-      instrEl.classList.add('narration-enter');
-      setTimeout(() => instrEl.classList.remove('narration-enter'), 400);
-    }, 200);
-  }
-
-  if (progText) progText.textContent = `Step ${index + 1} of ${total}`;
-
-  // === V3: Step progress dots indicator ===
-  if (stepIndicator) {
-    const maxDots = Math.min(total, 12); // cap visual dots
-    const dotRatio = total > 12 ? index / (total - 1) : null;
-    let dotsHtml = '';
-    for (let i = 0; i < maxDots; i++) {
-      const isActive = dotRatio !== null
-        ? (i / (maxDots - 1)) <= dotRatio
-        : i <= index;
-      dotsHtml += `<span class="step-dot ${isActive ? 'active' : ''} ${i === (dotRatio !== null ? Math.round(dotRatio * (maxDots - 1)) : index) ? 'current' : ''}"></span>`;
+    if (exercise) {
+      if (titleEl) titleEl.textContent = exercise.title;
+      if (descEl) descEl.textContent = exercise.subtitle;
     }
-    stepIndicator.innerHTML = dotsHtml;
+
+    // Session preview tags (what's included)
+    const previewEl = document.getElementById('training-preview');
+    if (previewEl && exercise) {
+      const tags = [];
+      const durationMin = Math.ceil(exercise.duration / 60);
+      tags.push(`${durationMin} min`);
+
+      // Detect what the exercise contains
+      const stepTypes = exercise.steps.map(s => s.type);
+      if (stepTypes.some(t => t === 'breathe-in' || t === 'breathe-out')) tags.push('Breathwork');
+      if (stepTypes.some(t => t === 'hold' || t === 'pressure-hold')) tags.push('Breath hold');
+      if (stepTypes.some(t => t === 'cognitive-slot')) tags.push('Focus drill');
+      if (stepTypes.some(t => t === 'disruption-slot')) tags.push('Disruption');
+      if (exercise.category === 'body') tags.push('Body scan');
+
+      previewEl.innerHTML = tags.map(t => `<span class="training-tag">${t}</span>`).join('');
+    }
+
+    // CTA vs Done state
+    if (todayDone) {
+      if (ctaEl) ctaEl.style.display = 'none';
+      if (doneEl) doneEl.style.display = 'flex';
+    } else {
+      if (ctaEl) ctaEl.style.display = 'flex';
+      if (doneEl) doneEl.style.display = 'none';
+    }
   }
 
-  // === V3: Haptic feedback on step transitions ===
-  if (step.type === 'breathe-in') {
-    hapticInhale();
-  } else if (step.type === 'breathe-out') {
-    hapticExhale();
-  } else if (step.type === 'hold') {
-    hapticHold();
-  } else {
-    hapticTap();
+  /**
+   * Start today's training — launches the challenge exercise for the current day.
+   */
+  startTodaysTraining() {
+    const program = getChallengeProgram();
+    const exerciseId = challengeDayMap[program.currentDay];
+    if (exerciseId) {
+      this.launchPlayer(exerciseId, 'challenge');
+    }
   }
 
-  // Breathing animation
-  if (exercise.id !== 'stress-journal') {
-    if (step.type.startsWith('breathe') || step.type === 'hold') {
-      if (circleWrap) circleWrap.style.display = 'block';
-      if (circle) {
-        circle.classList.remove('inhale', 'exhale', 'hold');
-        if (step.type === 'breathe-in')       { circle.classList.add('inhale');  if (label) label.textContent = 'Breathe In'; }
-        else if (step.type === 'breathe-out') { circle.classList.add('exhale');  if (label) label.textContent = 'Breathe Out'; }
-        else if (step.type === 'hold')        { circle.classList.add('hold');    if (label) label.textContent = 'Hold'; }
+  // Keep getTodaysExercise for library/other use
+  getTodaysExercise() {
+    const trainingExercises = exercises.filter(e => e.mode === 'training' || e.mode === 'both');
+    const now = new Date();
+    const start = new Date(now.getFullYear(), 0, 0);
+    const dayOfYear = Math.floor((now - start) / (1000 * 60 * 60 * 24));
+    const sessions = getSessions();
+    const recentIds = new Set();
+    for (let i = 0; i < 5; i++) {
+      const d = new Date(now);
+      d.setDate(d.getDate() - i - 1);
+      const dateStr = d.toISOString().split('T')[0];
+      sessions.filter(s => s.date === dateStr).forEach(s => recentIds.add(s.exerciseId));
+    }
+    let index = dayOfYear % trainingExercises.length;
+    let attempts = 0;
+    while (recentIds.has(trainingExercises[index].id) && attempts < trainingExercises.length) {
+      index = (index + 1) % trainingExercises.length;
+      attempts++;
+    }
+    return trainingExercises[index];
+  }
+
+  // ============================================
+  // PLAYER INTEGRATION
+  // ============================================
+
+  beginDailyPractice() {
+    // Now redirects to the unified training flow
+    this.startTodaysTraining();
+  }
+
+  startChallenge() {
+    // Now redirects to the unified training flow
+    this.startTodaysTraining();
+  }
+
+  resetChallenge() {
+    resetChallenge();
+    this.showToast('Level up! New challenge started.');
+    this.renderHome();
+  }
+
+  dismissLevelComplete() {
+    this.showToast('Take your time. The next level will be here.');
+  }
+
+  startPrepare() {
+    this.launchPlayer('pre-event-protocol', 'prepare');
+  }
+
+  startEmergencyCalm() {
+    this.launchPlayer('physiological-sigh', 'relief');
+  }
+
+  startRecommended() {
+    if (this.recommendedExercise) {
+      this.launchPlayer(this.recommendedExercise.id, 'relief');
+    }
+  }
+
+  launchPlayer(exerciseId, mode) {
+    this.player.start(exerciseId);
+    this.playerMode = mode;
+    this.navigate('player');
+    this.showPlayerPhase('precheck');
+    this.renderSignalCheck('signal-check-before', {});
+  }
+
+  setupPlayerCallbacks() {
+    this.player.onPhaseChange = (data) => {
+      if (data.phase === 'pre-check') this.showPlayerPhase('precheck');
+      else if (data.phase === 'intention') this.showPlayerPhase('intention');
+      else if (data.phase === 'active') this.showPlayerPhase('active');
+      else if (data.phase === 'post-check') this.showPlayerPhase('postcheck');
+    };
+
+    this.player.onStepChange = (data) => {
+      this.renderActiveStep(data);
+    };
+
+    this.player.onStepTick = (data) => {
+      // Update step progress if needed
+    };
+
+    this.player.onTimerTick = (data) => {
+      const timerEl = document.getElementById('player-timer');
+      const progressEl = document.getElementById('progress-fill');
+      if (timerEl) timerEl.textContent = formatTime(data.remaining);
+      if (progressEl) {
+        const pct = (data.elapsed / data.duration) * 100;
+        progressEl.style.width = `${pct}%`;
       }
+    };
+  }
+
+  showPlayerPhase(phase) {
+    document.querySelectorAll('.player-phase').forEach(p => (p.style.display = 'none'));
+    const phaseEl = document.getElementById(`phase-${phase}`);
+    if (phaseEl) phaseEl.style.display = 'flex';
+
+    if (phase === 'active') {
+      const titleEl = document.getElementById('player-title');
+      const timerEl = document.getElementById('player-timer');
+      if (titleEl) titleEl.textContent = this.player.currentExercise.title;
+      if (timerEl) timerEl.textContent = formatTime(this.player.currentExercise.duration);
+      this.renderStepDots();
+    }
+
+    if (phase === 'intention') {
+      this.renderIntentionChips();
+    }
+
+    if (phase === 'postcheck') {
+      this.renderPostCheck();
+    }
+  }
+
+  renderActiveStep(data) {
+    const instruction = document.getElementById('step-instruction');
+    const hint = document.getElementById('step-type-hint');
+    const circle = document.getElementById('breathing-circle');
+
+    if (instruction) instruction.textContent = data.step.instruction;
+
+    // Step type hints
+    const typeLabels = {
+      'breathe-in': 'Breathe In',
+      'breathe-out': 'Breathe Out',
+      hold: 'Hold',
+      'pressure-hold': 'Hold',
+      prompt: '',
+      timed: '',
+      cognitive: 'Think',
+      disruption: 'RESET'
+    };
+    if (hint) hint.textContent = typeLabels[data.step.type] || '';
+
+    // Breathing circle animation
+    if (circle) {
+      circle.className = 'breathing-circle';
+      if (data.breathingState === 'inhale') circle.classList.add('breathing-circle--inhale');
+      else if (data.breathingState === 'exhale') circle.classList.add('breathing-circle--exhale');
+      else if (data.breathingState === 'hold') circle.classList.add('breathing-circle--hold');
+    }
+
+    // Disruption effect
+    if (data.step.type === 'disruption') {
+      if (instruction) {
+        instruction.classList.add('step--disruption');
+        setTimeout(() => instruction.classList.remove('step--disruption'), 500);
+      }
+    }
+
+    // Update step count
+    const stepCountEl = document.getElementById('step-count');
+    if (stepCountEl) stepCountEl.textContent = `Step ${data.index + 1} of ${data.total}`;
+  }
+
+  renderSignalCheck(containerId, defaults) {
+    const container = document.getElementById(containerId);
+    if (!container) return;
+
+    const signals = ['mind', 'body', 'breath', 'pressure'];
+
+    container.innerHTML = signals
+      .map(sig => {
+        // Handle both object and array format for signalDefinitions
+        let def;
+        if (Array.isArray(signalDefinitions)) {
+          def = signalDefinitions.find(s => s.id === sig);
+        } else {
+          def = signalDefinitions[sig];
+        }
+
+        const name = def ? def.name : sig;
+        const levels = def ? def.levels : ['Low', 'Medium', 'High'];
+
+        return `
+        <div class="signal-row" data-signal="${sig}">
+          <span class="signal-row-label">${name}</span>
+          <div class="signal-levels">
+            ${levels
+              .map(
+                (level, i) => `
+              <button class="signal-level ${defaults[sig] === i ? 'signal-level--active' : ''}"
+                      data-signal="${sig}" data-level="${i}"
+                      onclick="app.selectSignalLevel('${containerId}', '${sig}', ${i})">
+                ${level}
+              </button>
+            `
+              )
+              .join('')}
+          </div>
+        </div>
+      `;
+      })
+      .join('');
+  }
+
+  selectSignalLevel(containerId, signal, level) {
+    const container = document.getElementById(containerId);
+    if (!container) return;
+    const row = container.querySelector(`[data-signal="${signal}"]`);
+    if (!row) return;
+    row.querySelectorAll('.signal-level').forEach(btn => btn.classList.remove('signal-level--active'));
+    const activeBtn = row.querySelector(`[data-level="${level}"]`);
+    if (activeBtn) activeBtn.classList.add('signal-level--active');
+  }
+
+  getSelectedSignals(containerId) {
+    const container = document.getElementById(containerId);
+    if (!container) return {};
+    const signals = {};
+    container.querySelectorAll('.signal-row').forEach(row => {
+      const sig = row.dataset.signal;
+      const active = row.querySelector('.signal-level--active');
+      signals[sig] = active ? parseInt(active.dataset.level) : 0;
+    });
+    return signals;
+  }
+
+  proceedFromPreCheck() {
+    const signals = this.getSelectedSignals('signal-check-before');
+    this.player.setSignalsBefore(signals);
+    this.player.proceedFromPreCheck();
+  }
+
+  renderIntentionChips() {
+    const container = document.getElementById('intention-chips');
+    if (!container) return;
+    container.innerHTML = intentionCategories
+      .map(
+        cat =>
+          `<button class="chip" data-value="${cat.id}" onclick="app.toggleIntentionChip(this)">${cat.label}</button>`
+      )
+      .join('');
+  }
+
+  toggleIntentionChip(el) {
+    document.querySelectorAll('#intention-chips .chip').forEach(c => c.classList.remove('active'));
+    el.classList.add('active');
+    this.selectedIntention = el.dataset.value;
+  }
+
+  setIntention() {
+    if (this.selectedIntention) {
+      this.player.setIntention(this.selectedIntention);
+    }
+    this.player.beginExercise();
+  }
+
+  skipIntention() {
+    this.player.skipIntention();
+  }
+
+  togglePause() {
+    if (this.player.isPaused) {
+      this.player.resume();
+      const pauseIcon = document.getElementById('pause-icon');
+      const playIcon = document.getElementById('play-icon');
+      if (pauseIcon) pauseIcon.style.display = 'block';
+      if (playIcon) playIcon.style.display = 'none';
     } else {
-      if (circleWrap) circleWrap.style.display = 'none';
+      this.player.pause();
+      const pauseIcon = document.getElementById('pause-icon');
+      const playIcon = document.getElementById('play-icon');
+      if (pauseIcon) pauseIcon.style.display = 'none';
+      if (playIcon) playIcon.style.display = 'block';
     }
   }
 
-  // === V3: Step type visual hint (shown below instruction for non-breathing) ===
-  const typeHint = $('step-type-hint');
-  if (typeHint && exercise.id !== 'stress-journal') {
-    if (step.type === 'prompt') {
-      typeHint.textContent = 'Take your time';
-      typeHint.style.display = 'block';
-    } else if (step.type === 'repeat') {
-      typeHint.textContent = 'Continue at your own pace';
-      typeHint.style.display = 'block';
-    } else if (step.duration && step.duration >= 10) {
-      typeHint.textContent = `${step.duration}s`;
-      typeHint.style.display = 'block';
-    } else {
-      typeHint.style.display = 'none';
+  restartExercise() {
+    this.player.restart();
+  }
+
+  skipStep() {
+    this.player.skipStep();
+  }
+
+  exitPlayer() {
+    this.player.destroy();
+    this.navigate('home');
+  }
+
+  renderPostCheck() {
+    this.renderSignalCheck('signal-check-after', this.player.signalsBefore || {});
+    this.renderShiftSummary();
+  }
+
+  renderShiftSummary() {
+    const before = this.player.signalsBefore || {};
+    const container = document.getElementById('shift-summary');
+    if (!container) return;
+
+    // Show only elevated signals
+    const elevated = Object.entries(before).filter(([k, v]) => v > 0);
+    if (elevated.length === 0) {
+      container.innerHTML = '<p>Starting from a good place. Nice.</p>';
+      return;
     }
+
+    container.innerHTML = elevated
+      .map(([sig, level]) => {
+        let def;
+        if (Array.isArray(signalDefinitions)) {
+          def = signalDefinitions.find(s => s.id === sig);
+        } else {
+          def = signalDefinitions[sig];
+        }
+        const name = def ? def.name : sig;
+        return `<div class="shift-item"><span>${name}</span><span>Level ${level}</span></div>`;
+      })
+      .join('');
   }
 
-  // User-paced steps: show Next button
-  if (step.duration === null && step.type !== 'repeat') {
-    const controls = $('player-controls');
-    if (controls && !controls.querySelector('.next-btn')) {
-      const nb = document.createElement('button');
-      nb.className = 'btn btn-primary next-btn';
-      nb.textContent = 'Next →';
-      nb.addEventListener('click', () => appState.player.skip());
-      controls.appendChild(nb);
+  saveAndClose() {
+    const signalsAfter = this.getSelectedSignals('signal-check-after');
+    this.player.setSignalsAfter(signalsAfter);
+    const session = this.player.getSessionData();
+    addSession(session);
+
+    // Save daily practice if training mode
+    if (this.playerMode === 'training' || this.playerMode === 'both') {
+      saveDailyPractice(session.date, session.exerciseId);
     }
-  } else {
-    const nb = document.querySelector('.next-btn');
-    if (nb) nb.remove();
+
+    // Advance challenge if challenge mode
+    if (this.playerMode === 'challenge') {
+      advanceChallengeDay();
+      saveDailyPractice(session.date, session.exerciseId);
+    }
+
+    // Backup to IDB
+    syncBackup();
+
+    this.showToast('Session saved');
+    this.navigate('home');
   }
-}
 
-function handleTick(elapsed, stepElapsed, stepDuration, exercise) {
-  const timer = $('player-timer');
-  if (timer) timer.textContent = formatTime(elapsed);
-  const fill = $('progress-fill');
-  if (fill && exercise.duration) {
-    fill.style.width = `${Math.min((elapsed / exercise.duration) * 100, 100)}%`;
+  skipSave() {
+    this.navigate('home');
   }
-}
 
-function handleComplete(exercise) {
-  const main = $('player-main'), post = $('player-post');
-  if (main) main.style.display = 'none';
-  if (post) post.style.display = 'block';
+  // ============================================
+  // LIBRARY VIEW
+  // ============================================
 
-  // V4: Generate post-exercise state check — only show elevated signals
-  generatePostStateCheck();
+  renderLibrary() {
+    this.renderExerciseList();
+  }
 
-  const saveBtn = $('player-save');
-  const skipBtn = $('player-skip-save');
+  filterExercises(filter) {
+    this.currentFilter = filter;
+    document.querySelectorAll('.filter-pill').forEach(p => {
+      p.classList.toggle('active', p.dataset.filter === filter);
+    });
+    this.renderExerciseList();
+  }
 
-  if (saveBtn) {
-    saveBtn.onclick = () => {
-      const state = appState.player.getState();
-      // Read post-exercise signal levels
-      appState.postSignals = readSignalLevels('state-check-post');
+  renderExerciseList() {
+    const bookmarks = getBookmarks();
+    let filtered = [...exercises];
 
-      // Fill in non-elevated signals with their pre values (unchanged)
-      if (appState.preSignals) {
-        SIGNAL_IDS.forEach(sig => {
-          if (appState.postSignals[sig] === undefined) {
-            appState.postSignals[sig] = appState.preSignals[sig];
-          }
+    switch (this.currentFilter) {
+      case 'training':
+        filtered = filtered.filter(e => e.mode === 'training' || e.mode === 'both');
+        break;
+      case 'challenge':
+        filtered = filtered.filter(e => e.mode === 'challenge');
+        break;
+      case 'prepare':
+        filtered = filtered.filter(e => e.mode === 'prepare');
+        break;
+      case 'relief':
+        filtered = filtered.filter(e => e.mode === 'relief' || e.mode === 'both');
+        break;
+      case 'saved':
+        filtered = filtered.filter(e => bookmarks.includes(e.id));
+        break;
+      case 'breathwork':
+        filtered = filtered.filter(e => e.category === 'breathwork');
+        break;
+      case 'body':
+        filtered = filtered.filter(e => e.category === 'body');
+        break;
+      case 'mind':
+        filtered = filtered.filter(e => e.category === 'mind');
+        break;
+      case 'quick':
+        filtered = filtered.filter(e => e.category === 'quick');
+        break;
+    }
+
+    const list = document.getElementById('exercise-list');
+    if (!list) return;
+
+    if (filtered.length === 0) {
+      list.innerHTML = '<div class="empty-state">No exercises found</div>';
+      return;
+    }
+
+    list.innerHTML = filtered
+      .map(ex => {
+        const saved = bookmarks.includes(ex.id);
+        return `
+        <div class="exercise-card exercise-card--${ex.category}" onclick="app.launchPlayer('${ex.id}', '${ex.mode}')">
+          <div class="exercise-card-content">
+            <h4 class="exercise-card-title">${this.escapeHtml(ex.title)}</h4>
+            <p class="exercise-card-subtitle">${this.escapeHtml(ex.subtitle)}</p>
+            <span class="exercise-card-duration">${Math.ceil(ex.duration / 60)} min</span>
+          </div>
+          <button class="btn-icon bookmark-icon ${saved ? 'active' : ''}" onclick="event.stopPropagation(); app.toggleBookmark('${ex.id}')" aria-label="Save">
+            <svg viewBox="0 0 24 24" width="20" height="20"><path d="M19 21l-7-5-7 5V5a2 2 0 012-2h10a2 2 0 012 2z" stroke="currentColor" stroke-width="1.5" fill="${saved ? 'currentColor' : 'none'}"/></svg>
+          </button>
+        </div>
+      `;
+      })
+      .join('');
+  }
+
+  toggleBookmark(exerciseId) {
+    toggleBookmark(exerciseId);
+    this.renderExerciseList();
+  }
+
+  // ============================================
+  // JOURNAL VIEW
+  // ============================================
+
+  renderJournal() {
+    this.renderJournalEntries();
+  }
+
+  switchJournalTab(tab) {
+    document.querySelectorAll('.journal-tab').forEach(t => {
+      t.classList.toggle('active', t.dataset.tab === tab);
+    });
+    const tabUnload = document.getElementById('tab-unload');
+    const tabReflect = document.getElementById('tab-reflect');
+    if (tabUnload) tabUnload.style.display = tab === 'unload' ? 'block' : 'none';
+    if (tabReflect) tabReflect.style.display = tab === 'reflect' ? 'block' : 'none';
+  }
+
+  saveJournal() {
+    const stressorEl = document.getElementById('journal-stressor');
+    const controlEl = document.getElementById('journal-control');
+    const nextstepEl = document.getElementById('journal-nextstep');
+
+    if (!stressorEl || !controlEl || !nextstepEl) return;
+
+    const stressor = stressorEl.value.trim();
+    const inControl = controlEl.value.trim();
+    const nextStep = nextstepEl.value.trim();
+
+    if (!stressor) {
+      this.showToast("Write what's stressing you first");
+      return;
+    }
+
+    saveJournalEntry({
+      stressor,
+      inControl,
+      nextStep,
+      date: new Date().toISOString().split('T')[0],
+      timestamp: Date.now()
+    });
+
+    // Clear form
+    stressorEl.value = '';
+    controlEl.value = '';
+    nextstepEl.value = '';
+
+    this.showToast('Entry saved');
+    this.renderJournalEntries();
+    syncBackup();
+  }
+
+  saveReflection() {
+    const situationEl = document.getElementById('reflect-situation');
+    const wouldchangeEl = document.getElementById('reflect-wouldchange');
+
+    if (!situationEl || !wouldchangeEl) return;
+
+    const situation = situationEl.value.trim();
+    if (!situation) {
+      this.showToast('Describe the situation first');
+      return;
+    }
+
+    const tools = document.querySelector('#reflect-tools .chip.active');
+    const reg = document.querySelector('#reflect-regulation .chip.active');
+
+    saveReflection({
+      situation,
+      usedTools: tools ? tools.dataset.value : 'didnt',
+      regulationLevel: reg ? parseInt(reg.dataset.value) : 0,
+      wouldChange: wouldchangeEl.value.trim(),
+      date: new Date().toISOString().split('T')[0],
+      timestamp: Date.now()
+    });
+
+    // Clear form
+    situationEl.value = '';
+    wouldchangeEl.value = '';
+    document.querySelectorAll('#reflect-tools .chip, #reflect-regulation .chip').forEach(c => c.classList.remove('active'));
+
+    this.showToast('Reflection saved');
+    this.renderJournalEntries();
+    syncBackup();
+  }
+
+  selectReflectOption(el, groupId) {
+    const group = document.getElementById(groupId);
+    if (!group) return;
+    group.querySelectorAll('.chip').forEach(c => c.classList.remove('active'));
+    el.classList.add('active');
+  }
+
+  renderJournalEntries() {
+    const entries = getJournalEntries();
+    const reflections = getReflections();
+
+    // Combine and sort by timestamp desc
+    const all = [
+      ...entries.map(e => ({ ...e, type: 'unload' })),
+      ...reflections.map(r => ({ ...r, type: 'reflect' }))
+    ].sort((a, b) => b.timestamp - a.timestamp);
+
+    const list = document.getElementById('journal-entries-list');
+    if (!list) return;
+
+    if (all.length === 0) {
+      list.innerHTML = '<div class="empty-state">No entries yet. Start writing.</div>';
+      return;
+    }
+
+    list.innerHTML = all
+      .slice(0, 20)
+      .map(entry => {
+        if (entry.type === 'unload') {
+          return `<div class="journal-entry"><span class="entry-type">Unload</span><span class="entry-date">${entry.date}</span><p>${this.escapeHtml(entry.stressor)}</p></div>`;
+        } else {
+          const regLabels = ['Overwhelmed', 'Managed', 'Steady'];
+          return `<div class="journal-entry journal-entry--reflect"><span class="entry-type">Reflect</span><span class="entry-date">${entry.date}</span><p>${this.escapeHtml(entry.situation)}</p><span class="entry-reg">${regLabels[entry.regulationLevel] || ''}</span></div>`;
+        }
+      })
+      .join('');
+  }
+
+  // ============================================
+  // PROGRESS/HISTORY VIEW
+  // ============================================
+
+  renderProgress() {
+    // Stats
+    const statStreak = document.getElementById('stat-streak');
+    const statWeek = document.getElementById('stat-week');
+    const statMonth = document.getElementById('stat-month');
+    const statLongest = document.getElementById('stat-longest');
+
+    if (statStreak) statStreak.textContent = getStreak();
+    if (statWeek) statWeek.textContent = getWeeklyActivity().reduce((s, d) => s + d.count, 0);
+    if (statMonth) statMonth.textContent = getMonthlySessionCount();
+    if (statLongest) statLongest.textContent = getLongestStreak();
+
+    // Challenge progress
+    this.renderChallengeProgress();
+
+    // Intention stats
+    this.renderIntentionProgress();
+
+    // Charts
+    this.renderWeeklyChart();
+    this.renderSignalChart();
+
+    // Recent sessions
+    this.renderRecentSessions();
+
+    // Most helpful
+    this.renderMostHelpful();
+  }
+
+  renderChallengeProgress() {
+    const unlocked = isChallengeUnlocked();
+    const card = document.getElementById('challenge-progress-card');
+    if (!card) return;
+
+    if (!unlocked) {
+      card.style.display = 'none';
+      return;
+    }
+
+    card.style.display = 'block';
+    const program = getChallengeProgram();
+    const totalDays = 28;
+    const level = program.level || 1;
+
+    // Update card title
+    const cardTitle = card.querySelector('.card-title');
+    if (cardTitle) cardTitle.textContent = `Level ${level} Challenge`;
+
+    const dots = document.getElementById('challenge-dots');
+    if (dots) {
+      // Render 28 dots grouped by phase
+      let html = '';
+      challengePhases.forEach(phase => {
+        const phaseName = phase.name.toLowerCase();
+        html += `<div class="challenge-phase-group" data-phase="${phaseName}">`;
+        html += `<span class="challenge-phase-name">${phase.name}</span>`;
+        html += '<div class="challenge-phase-dots">';
+        phase.days.forEach(day => {
+          const completed = program.completedDays.includes(day);
+          const current = day === program.currentDay;
+          html += `<div class="challenge-dot ${completed ? 'completed' : ''} ${current ? 'current' : ''}" data-phase="${phaseName}" title="Day ${day}"></div>`;
         });
-      }
-
-      storage.saveSession(exercise.id, {
-        signalsBefore: appState.preSignals,
-        signalsAfter: appState.postSignals,
-        completed: true,
-        duration: state.elapsed,
+        html += '</div></div>';
       });
-      if (exercise.id === 'stress-journal' && appState.journalEntries.length > 0) {
-        appState.journalEntries.forEach(e => storage.saveJournalEntry(e));
-      }
-      // V6: If this was the daily practice exercise, mark practice as completed
-      if (appState.practiceExerciseId && exercise.id === appState.practiceExerciseId) {
-        storage.completePractice(exercise.id);
-        appState.practiceExerciseId = null;
-      }
-
-      // V5: Show exercise report card if enough data, otherwise shift toast + navigate
-      const reportShown = showExerciseReport(exercise.id, appState.preSignals, appState.postSignals);
-      if (!reportShown) {
-        showShiftToast(appState.preSignals, appState.postSignals);
-        navigate('home');
-      }
-    };
-  }
-  if (skipBtn) { skipBtn.onclick = () => navigate('home'); }
-}
-
-/**
- * V4: Generate post-exercise state check with only elevated signals
- */
-function generatePostStateCheck() {
-  const container = $('state-check-post');
-  if (!container || !appState.preSignals) return;
-
-  // Find elevated signals (level >= 1)
-  const elevated = SIGNAL_IDS.filter(sig => appState.preSignals[sig] >= 1);
-
-  if (elevated.length === 0) {
-    // All signals were calm — simple confirmation
-    container.innerHTML = `
-      <div class="all-calm-msg">
-        <span class="calm-emoji">—</span>
-        <p>Still feeling good?</p>
-      </div>`;
-    return;
-  }
-
-  let html = '<h3 class="state-check-title">How do you feel now?</h3>';
-  elevated.forEach(sig => {
-    const info = SIGNALS[sig];
-    const preLvl = appState.preSignals[sig];
-    const defaultPost = Math.max(0, preLvl - 1); // nudge one level lower
-    html += `
-      <div class="signal-row" data-signal="${sig}">
-        <div class="signal-row-label">${info.icon} ${info.name}</div>
-        <div class="signal-was">Was: ${info.levels[preLvl]}</div>
-        <div class="signal-levels">
-          ${info.levels.map((label, lvl) =>
-            `<button class="signal-level ${lvl === defaultPost ? 'selected' : ''}" data-level="${lvl}">${label}</button>`
-          ).join('')}
-        </div>
-      </div>`;
-  });
-  container.innerHTML = html;
-
-  // Wire up click handlers
-  container.querySelectorAll('.signal-level').forEach(btn => {
-    btn.addEventListener('click', () => {
-      const row = btn.closest('.signal-row');
-      row.querySelectorAll('.signal-level').forEach(b => b.classList.remove('selected'));
-      btn.classList.add('selected');
-      hapticTap();
-    });
-  });
-}
-
-/**
- * V4: Show a shift summary toast after saving
- */
-function showShiftToast(pre, post) {
-  if (!pre || !post) { showToast('Session saved!'); return; }
-  const shifts = [];
-  SIGNAL_IDS.forEach(sig => {
-    const before = pre[sig] || 0;
-    const after = post[sig] || 0;
-    if (before > after) {
-      shifts.push(`${SIGNALS[sig].name}: ${SIGNALS[sig].levels[before]} → ${SIGNALS[sig].levels[after]}`);
+      dots.innerHTML = html;
     }
-  });
-  if (shifts.length > 0) {
-    showToast(shifts.join(' · '), 4000);
-  } else {
-    showToast('Session saved!');
-  }
-}
 
-/**
- * V5: Show exercise report card overlay after saving a session.
- * Returns true if the report was shown, false if data threshold not met.
- */
-function showExerciseReport(exerciseId, preSignals, postSignals) {
-  const data = {
-    recentSessions: storage.getRecentSessions(90),
-    signalEffectiveness: storage.getSignalEffectiveness(90),
-    exercises,
-  };
+    // Phase label
+    const currentPhaseObj = challengePhases.find(p => p.days.includes(program.currentDay));
+    const currentPhaseName = currentPhaseObj ? currentPhaseObj.name : (program.currentDay > totalDays ? 'Complete' : 'Foundation');
 
-  const report = getExerciseReport(exerciseId, preSignals, postSignals, data);
-  if (!report) return false;
-
-  // Build overlay
-  const overlay = document.createElement('div');
-  overlay.className = 'exercise-report-overlay';
-
-  let shiftsHtml = '';
-  if (report.shifts.length > 0) {
-    shiftsHtml = '<div class="report-shifts">' +
-      report.shifts.map(s =>
-        `<div class="report-shift-line">${s.name}: ${s.before} <span class="shift-arrow">→</span> ${s.after}</div>`
-      ).join('') +
-      '</div>';
-  }
-
-  let contextHtml = '<div class="report-context">';
-  contextHtml += `<p>This is your ${ordinal(report.sessionCount)} time doing this exercise.</p>`;
-  if (report.bestSignalInsight) {
-    contextHtml += `<p>${report.bestSignalInsight}.</p>`;
-  }
-  contextHtml += '</div>';
-
-  overlay.innerHTML = `<div class="exercise-report-card">
-    <h3>${report.exerciseName}</h3>
-    ${shiftsHtml}
-    ${contextHtml}
-    <button class="btn btn-primary" id="report-done-btn">Done</button>
-  </div>`;
-
-  document.body.appendChild(overlay);
-
-  // Auto-dismiss after 3 seconds or on tap
-  const dismiss = () => {
-    if (overlay.parentNode) {
-      overlay.remove();
-      navigate('home');
+    const phaseLabel = document.getElementById('challenge-phase-label');
+    if (phaseLabel) {
+      const progress = Math.round((Math.min(program.currentDay - 1, totalDays) / totalDays) * 100);
+      phaseLabel.textContent = `${currentPhaseName} · ${progress}% complete`;
     }
-  };
+  }
 
-  const timer = setTimeout(dismiss, 3000);
+  renderIntentionProgress() {
+    const stats = getIntentionStats();
+    const card = document.getElementById('intention-progress-card');
+    if (!card) return;
 
-  const doneBtn = overlay.querySelector('#report-done-btn');
-  if (doneBtn) {
-    doneBtn.addEventListener('click', () => {
-      clearTimeout(timer);
-      dismiss();
+    const entries = Object.entries(stats).filter(([k, v]) => v > 0);
+
+    if (entries.length === 0) {
+      card.style.display = 'none';
+      return;
+    }
+
+    card.style.display = 'block';
+    const list = document.getElementById('intention-stats-list');
+    if (!list) return;
+
+    list.innerHTML = entries
+      .sort((a, b) => b[1] - a[1])
+      .map(([cat, count]) => {
+        const label = intentionCategories.find(c => c.id === cat)?.label || cat;
+        return `<div class="intention-stat"><span>${label}</span><span class="intention-count">Trained ${count} times</span></div>`;
+      })
+      .join('');
+  }
+
+  renderWeeklyChart() {
+    const canvas = document.getElementById('weekly-chart');
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    const data = getWeeklyActivity();
+    const dpr = window.devicePixelRatio || 1;
+    canvas.width = canvas.offsetWidth * dpr;
+    canvas.height = canvas.offsetHeight * dpr;
+    ctx.scale(dpr, dpr);
+    const w = canvas.offsetWidth;
+    const h = canvas.offsetHeight;
+
+    ctx.clearRect(0, 0, w, h);
+
+    const maxCount = Math.max(...data.map(d => d.count), 1);
+    const barWidth = (w - 60) / 7;
+    const style = getComputedStyle(document.documentElement);
+    const accent = style.getPropertyValue('--accent').trim() || '#4a6e4e';
+    const textColor = style.getPropertyValue('--text-muted').trim() || '#6b6660';
+
+    data.forEach((d, i) => {
+      const barH = (d.count / maxCount) * (h - 40);
+      const x = 30 + i * barWidth;
+      const y = h - 25 - barH;
+
+      ctx.fillStyle = accent;
+      ctx.fillRect(x + 4, y, barWidth - 8, barH);
+
+      // Day label
+      ctx.fillStyle = textColor;
+      ctx.font = '10px -apple-system, sans-serif';
+      ctx.textAlign = 'center';
+      const dayLabel = new Date(d.date).toLocaleDateString('en', { weekday: 'short' });
+      ctx.fillText(dayLabel, x + barWidth / 2, h - 8);
     });
   }
 
-  overlay.addEventListener('click', (e) => {
-    if (e.target === overlay) {
-      clearTimeout(timer);
-      dismiss();
-    }
-  });
+  renderSignalChart() {
+    const canvas = document.getElementById('signal-chart');
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
 
-  return true;
-}
+    const sessions = getSessions().slice(-14);
+    if (sessions.length < 2) return;
 
-function ordinal(n) {
-  const s = ['th', 'st', 'nd', 'rd'];
-  const v = n % 100;
-  return n + (s[(v - 20) % 10] || s[v] || s[0]);
-}
+    const dpr = window.devicePixelRatio || 1;
+    canvas.width = canvas.offsetWidth * dpr;
+    canvas.height = canvas.offsetHeight * dpr;
+    ctx.scale(dpr, dpr);
+    const w = canvas.offsetWidth;
+    const h = canvas.offsetHeight;
 
-function setupPlayerControls() {
-  const pauseBtn = $('player-pause');
-  const restartBtn = $('player-restart');
-  const skipBtn = $('player-skip');
+    ctx.clearRect(0, 0, w, h);
 
-  if (pauseBtn) {
-    pauseBtn.onclick = () => {
-      if (appState.player.isPaused()) { appState.player.resume(); pauseBtn.textContent = 'Pause'; }
-      else                            { appState.player.pause();  pauseBtn.textContent = 'Resume'; }
+    const style = getComputedStyle(document.documentElement);
+    const colors = {
+      mind: style.getPropertyValue('--text-secondary').trim() || '#9b9690',
+      body: style.getPropertyValue('--warning').trim() || '#a08058',
+      breath: style.getPropertyValue('--accent').trim() || '#4a6e4e',
+      pressure: style.getPropertyValue('--danger').trim() || '#b05a50'
     };
-  }
-  if (restartBtn) {
-    restartBtn.onclick = () => {
-      appState.player.restart();
-      const p = $('player-pause');
-      if (p) p.textContent = 'Pause';
-    };
-  }
-  if (skipBtn) { skipBtn.onclick = () => appState.player.skip(); }
-}
 
-function setupPlayerBackButton() {
-  const btn = $('player-back');
-  if (btn) btn.onclick = () => { if (appState.player) appState.player.stop(); navigate('home'); };
-}
-
-function setupJournalExerciseMode(exercise) {
-  const ji = $('journal-inputs');
-  const ta = $('journal-textarea');
-  const nb = $('journal-next');
-  if (ji) ji.style.display = 'block';
-  if (nb) {
-    nb.onclick = () => {
-      const text = ta?.value.trim();
-      if (!text) { showToast('Please write something'); return; }
-      const state = appState.player.getState();
-      const labels = ['stressor', 'inControl', 'nextStep'];
-      const label = labels[state.stepIndex] || `field_${state.stepIndex}`;
-      appState.journalEntries[state.stepIndex] = { field: label, value: text };
-      if (ta) ta.value = '';
-      appState.player.skip();
-    };
-  }
-}
-
-// ============================================================================
-// JOURNAL VIEW
-// ============================================================================
-
-function initJournal() {
-  const saveBtn = $('journal-save');
-  if (saveBtn) {
-    saveBtn.onclick = () => {
-      const stressor = $('journal-stressor')?.value.trim();
-      const inControl = $('journal-control')?.value.trim();
-      const nextStep = $('journal-nextstep')?.value.trim();
-      if (!stressor || !inControl || !nextStep) { showToast('Please fill in all fields'); return; }
-      try {
-        storage.saveJournalEntry({ stressor, inControl, nextStep });
-        if ($('journal-stressor')) $('journal-stressor').value = '';
-        if ($('journal-control'))  $('journal-control').value = '';
-        if ($('journal-nextstep')) $('journal-nextstep').value = '';
-        showToast('Entry saved');
-        loadJournalEntries();
-      } catch (err) { showToast(`Error: ${err.message}`); }
-    };
-  }
-  loadJournalEntries();
-}
-
-function loadJournalEntries() {
-  const list = $('journal-entries-list');
-  if (!list) return;
-  const entries = storage.getJournalEntries(30);
-  if (entries.length === 0) {
-    list.innerHTML = '<p class="empty-state">No entries yet.</p>';
-    return;
-  }
-  list.innerHTML = entries.map(e => `
-    <div class="journal-entry-card">
-      <div class="entry-date">${formatDateDisplay(e.date)}</div>
-      <div class="entry-field"><span class="field-label">Stressor:</span><p>${escapeHtml(e.stressor)}</p></div>
-      <div class="entry-field"><span class="field-label">In Control:</span><p>${escapeHtml(e.inControl)}</p></div>
-      <div class="entry-field"><span class="field-label">Next Step:</span><p>${escapeHtml(e.nextStep)}</p></div>
-    </div>`).join('');
-}
-
-// ============================================================================
-// HISTORY VIEW (with weekly chart + share)
-// ============================================================================
-
-function initHistory() {
-  updateHistoryStats();
-  renderSignalChart();
-  renderWeeklyChart();
-  populateRecentSessions();
-  populateMostHelpful();
-  setupShareButton();
-}
-
-/**
- * V5: Render the 14-day signal history chart
- */
-function renderSignalChart() {
-  const container = $('signal-chart');
-  if (!container) return;
-
-  const sessions = storage.getRecentSessions(14);
-  const chartData = getSignalChartData(sessions);
-
-  if (!chartData.hasData) {
-    container.style.display = 'none';
-    return;
-  }
-
-  container.style.display = 'block';
-
-  const signalLabels = {
-    mind: 'Mind',
-    body: 'Body',
-    breath: 'Breath',
-    pressure: 'Pressure',
-  };
-
-  // Build grid HTML
-  // Row 0: empty corner + day labels
-  let html = '<h3>Signal Trends (Last 2 Weeks)</h3><div class="signal-chart-grid">';
-
-  // Header row: empty corner + 14 day labels
-  html += '<div class="signal-chart-label"></div>';
-  chartData.days.forEach(day => {
-    html += `<div class="signal-chart-day-label">${day.dayLabel}</div>`;
-  });
-
-  // One row per signal
-  SIGNAL_IDS.forEach(sig => {
-    html += `<div class="signal-chart-label">${signalLabels[sig]}</div>`;
-    chartData.days.forEach(day => {
-      const level = day.signals[sig];
-      const cls = level === -1 ? 'level-none' : `level-${level}`;
-      html += `<div class="signal-dot ${cls}"></div>`;
+    ['mind', 'body', 'breath', 'pressure'].forEach(signal => {
+      ctx.beginPath();
+      ctx.strokeStyle = colors[signal];
+      ctx.lineWidth = 1.5;
+      sessions.forEach((s, i) => {
+        const x = 30 + (i / (sessions.length - 1)) * (w - 60);
+        const val = s.signalsBefore ? s.signalsBefore[signal] || 0 : 0;
+        const y = h - 25 - (val / 2) * (h - 50);
+        if (i === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+      });
+      ctx.stroke();
     });
-  });
+  }
 
-  html += '</div>';
-  container.innerHTML = html;
-}
+  renderRecentSessions() {
+    const sessions = getSessions().slice(-10).reverse();
+    const list = document.getElementById('session-list');
+    if (!list) return;
 
-function updateHistoryStats() {
-  const grid = $('stats-grid');
-  if (!grid) return;
-  const practiceStreak = storage.getPracticeStreak();
-  const weekly = storage.getRecentSessions(7);
-  const allRecent = storage.getRecentSessions(30);
-
-  // Count training vs relief sessions
-  let trainingCount = 0, reliefCount = 0;
-  allRecent.forEach(s => {
-    const ex = getExercise(s.exerciseId);
-    if (ex) {
-      if (ex.mode === 'training' || ex.mode === 'both') trainingCount++;
-      if (ex.mode === 'relief' || ex.mode === 'both') reliefCount++;
+    if (sessions.length === 0) {
+      list.innerHTML = '<div class="empty-state">Complete your first exercise to see sessions here.</div>';
+      return;
     }
-  });
 
-  grid.innerHTML = `
-    <div class="stat-card"><div class="stat-label">Practice Streak</div><div class="stat-value">${practiceStreak.current}</div><div class="stat-unit">days</div></div>
-    <div class="stat-card"><div class="stat-label">This Week</div><div class="stat-value">${weekly.length}</div><div class="stat-unit">sessions</div></div>
-    <div class="stat-card"><div class="stat-label">Training</div><div class="stat-value">${trainingCount}</div><div class="stat-unit">last 30 days</div></div>
-    <div class="stat-card"><div class="stat-label">Longest Streak</div><div class="stat-value">${practiceStreak.longest}</div><div class="stat-unit">days</div></div>`;
-}
-
-function renderWeeklyChart() {
-  const container = $('chart-bars');
-  if (!container) return;
-  const sessions = storage.getRecentSessions(7);
-  const today = new Date();
-  const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-  const days = [];
-
-  for (let i = 6; i >= 0; i--) {
-    const d = new Date(today);
-    d.setDate(d.getDate() - i);
-    const dateStr = d.toISOString().split('T')[0];
-    const count = sessions.filter(s => s.date === dateStr).length;
-    days.push({ label: dayNames[d.getDay()], count, isToday: i === 0 });
+    list.innerHTML = sessions
+      .map(s => {
+        const ex = exercises.find(e => e.id === s.exerciseId);
+        return `<div class="session-item"><div><strong>${this.escapeHtml(ex ? ex.title : s.exerciseId)}</strong><span class="session-date">${s.date}</span></div><span class="session-duration">${Math.ceil(s.duration / 60)}m</span></div>`;
+      })
+      .join('');
   }
 
-  const maxCount = Math.max(...days.map(d => d.count), 1);
+  renderMostHelpful() {
+    const most = getMostUsedExercises(3);
+    const container = document.getElementById('most-helpful');
+    if (!container) return;
 
-  container.innerHTML = days.map(d => {
-    const height = d.count > 0 ? Math.max((d.count / maxCount) * 80, 8) : 4;
-    const cls = d.count === 0 ? 'empty' : (d.isToday ? 'today' : '');
-    return `<div class="chart-day">
-      ${d.count > 0 ? `<span class="chart-value">${d.count}</span>` : ''}
-      <div class="chart-bar ${cls}" style="height:${height}px;"></div>
-      <span class="chart-label">${d.label}</span>
-    </div>`;
-  }).join('');
-}
-
-function populateRecentSessions() {
-  const list = $('history-list');
-  if (!list) return;
-  const sessions = storage.getRecentSessions(30);
-  if (sessions.length === 0) {
-    list.innerHTML = '<p class="empty-state">No sessions yet.</p>';
-    return;
-  }
-  list.innerHTML = sessions.slice().reverse().map(s => {
-    const ex = getExercise(s.exerciseId);
-    if (!ex) return '';
-    // V4: show most-improved signal shift, fall back to legacy numbers
-    let shiftText = '';
-    if (s.signalsBefore && s.signalsAfter) {
-      let bestSig = null, bestDrop = 0;
-      SIGNAL_IDS.forEach(sig => {
-        const drop = (s.signalsBefore[sig] || 0) - (s.signalsAfter[sig] || 0);
-        if (drop > bestDrop) { bestDrop = drop; bestSig = sig; }
-      });
-      if (bestSig) {
-        shiftText = `${SIGNALS[bestSig].icon} ${SIGNALS[bestSig].levels[s.signalsBefore[bestSig]]} → ${SIGNALS[bestSig].levels[s.signalsAfter[bestSig]]}`;
-      }
-    } else if (typeof s.stressBefore === 'number') {
-      shiftText = `${s.stressBefore} → ${s.stressAfter}`;
+    if (most.length === 0) {
+      container.style.display = 'none';
+      return;
     }
-    return `<div class="history-item" data-category="${ex.category}">
-      <div class="history-indicator"></div>
-      <div class="history-info"><div class="history-title">${ex.title}</div><div class="history-date">${formatDateDisplay(s.date)}</div></div>
-      <div class="history-stress">${shiftText}</div>
-    </div>`;
-  }).join('');
-}
 
-function populateMostHelpful() {
-  const list = $('most-helpful-list');
-  if (!list) return;
-  const most = storage.getMostUsedExercises(30);
-  const signalEff = storage.getSignalEffectiveness(90);
-  if (most.length === 0) {
-    list.innerHTML = '<p class="empty-state">Track sessions to see what works best.</p>';
-    return;
+    container.style.display = 'block';
+    const list = document.getElementById('most-helpful-list');
+    if (!list) return;
+
+    list.innerHTML = most
+      .map(m => {
+        const ex = exercises.find(e => e.id === m.exerciseId);
+        return `<div class="session-item"><strong>${this.escapeHtml(ex ? ex.title : m.exerciseId)}</strong><span>${m.count} sessions</span></div>`;
+      })
+      .join('');
   }
-  list.innerHTML = most.map(item => {
-    const ex = getExercise(item.exerciseId);
-    if (!ex) return '';
-    // V4: Show best signal-specific insight if available
-    let statsText = `${item.count}x${item.avgReduction > 0 ? ` · ${item.avgReduction.toFixed(1)} avg relief` : ''}`;
-    const sigData = signalEff.get(item.exerciseId);
-    if (sigData && sigData.count >= 2) {
-      let bestSig = null, bestAvg = 0;
-      SIGNAL_IDS.forEach(sig => {
-        if (sigData[sig] > bestAvg) { bestAvg = sigData[sig]; bestSig = sig; }
-      });
-      if (bestSig && bestAvg > 0.3) {
-        statsText = `${item.count}x • Best for ${SIGNALS[bestSig].name.toLowerCase()}`;
-      }
+
+  // ============================================
+  // SETTINGS VIEW
+  // ============================================
+
+  renderSettings() {
+    const settings = getSettings();
+
+    const soundEl = document.getElementById('setting-sound');
+    const motionEl = document.getElementById('setting-motion');
+    const reminderEl = document.getElementById('setting-reminder');
+    const reminderTimeEl = document.getElementById('setting-reminder-time');
+    const reminderTimeRow = document.getElementById('reminder-time-row');
+
+    if (soundEl) soundEl.checked = settings.sound;
+    if (motionEl) motionEl.checked = settings.reducedMotion;
+    if (reminderEl) reminderEl.checked = settings.reminderEnabled;
+    if (reminderTimeEl) reminderTimeEl.value = settings.reminderTime;
+    if (reminderTimeRow) {
+      reminderTimeRow.style.display = settings.reminderEnabled ? 'flex' : 'none';
     }
-    return `<div class="most-helpful-card" data-exercise-id="${ex.id}" data-category="${ex.category}">
-      <div class="helpful-indicator"></div>
-      <div class="helpful-info"><div class="helpful-title">${ex.title}</div>
-      <div class="helpful-stats">${statsText}</div></div>
-    </div>`;
-  }).join('');
-  list.querySelectorAll('.most-helpful-card').forEach(c => {
-    c.addEventListener('click', () => startExercise(c.dataset.exerciseId));
-  });
-}
 
-// ============================================================================
-// SHARE PROGRESS (canvas-based image export)
-// ============================================================================
+    // Theme selector
+    document.querySelectorAll('.theme-option').forEach(btn => {
+      btn.classList.toggle('active', btn.dataset.theme === settings.theme);
+    });
+  }
 
-function setupShareButton() {
-  const btn = $('btn-share-progress');
-  if (!btn) return;
-  btn.onclick = async () => {
-    try {
-      const canvas = generateProgressImage();
-      const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/png'));
+  updateSetting(key, value) {
+    const settings = getSettings();
+    settings[key] = value;
+    saveSettings(settings);
 
-      // Try native share if available
-      if (navigator.share && navigator.canShare) {
-        const file = new File([blob], 'steady-progress.png', { type: 'image/png' });
-        if (navigator.canShare({ files: [file] })) {
-          await navigator.share({ files: [file], title: 'My Steady Progress' });
-          return;
-        }
-      }
-
-      // Fallback: download the image
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = 'steady-progress.png';
-      a.click();
-      URL.revokeObjectURL(url);
-      showToast('Progress image saved');
-    } catch (e) {
-      if (e.name !== 'AbortError') showToast('Could not share');
+    if (key === 'reducedMotion') this.applyReducedMotion(value);
+    if (key === 'sound') this.player.setSoundEnabled(value);
+    if (key === 'reminderEnabled') {
+      const row = document.getElementById('reminder-time-row');
+      if (row) row.style.display = value ? 'flex' : 'none';
+      if (value) this.setupReminder();
     }
-  };
-}
-
-function generateProgressImage() {
-  const canvas = document.createElement('canvas');
-  canvas.width = 600;
-  canvas.height = 400;
-  const ctx = canvas.getContext('2d');
-
-  // Background
-  ctx.fillStyle = '#1a1d21';
-  ctx.fillRect(0, 0, 600, 400);
-
-  // Title
-  ctx.fillStyle = '#e2dfd9';
-  ctx.font = 'bold 28px -apple-system, BlinkMacSystemFont, sans-serif';
-  ctx.fillText('Steady', 32, 48);
-  ctx.font = '14px -apple-system, BlinkMacSystemFont, sans-serif';
-  ctx.fillStyle = '#9b9690';
-  ctx.fillText('Train your resilience.', 32, 72);
-
-  // Stats
-  const practiceStreak = storage.getPracticeStreak();
-  const weekly = storage.getRecentSessions(7);
-  const total = storage.getRecentSessions(365);
-
-  const stats = [
-    { label: 'Practice Streak', value: `${practiceStreak.current} days` },
-    { label: 'Longest Streak', value: `${practiceStreak.longest} days` },
-    { label: 'This Week', value: `${weekly.length} sessions` },
-    { label: 'All Time', value: `${total.length} sessions` },
-  ];
-
-  stats.forEach((s, i) => {
-    const x = 32 + (i % 2) * 280;
-    const y = 120 + Math.floor(i / 2) * 90;
-    ctx.fillStyle = '#282d33';
-    ctx.beginPath();
-    ctx.roundRect(x, y, 250, 70, 12);
-    ctx.fill();
-    ctx.fillStyle = '#9b9690';
-    ctx.font = '13px -apple-system, BlinkMacSystemFont, sans-serif';
-    ctx.fillText(s.label, x + 16, y + 28);
-    ctx.fillStyle = '#e2dfd9';
-    ctx.font = 'bold 22px -apple-system, BlinkMacSystemFont, sans-serif';
-    ctx.fillText(s.value, x + 16, y + 54);
-  });
-
-  // Weekly bars
-  const barY = 320;
-  const sessions = storage.getRecentSessions(7);
-  const today = new Date();
-  const dayNames = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
-  for (let i = 6; i >= 0; i--) {
-    const d = new Date(today);
-    d.setDate(d.getDate() - i);
-    const dateStr = d.toISOString().split('T')[0];
-    const count = sessions.filter(s => s.date === dateStr).length;
-    const x = 32 + (6 - i) * 78;
-    const h = count > 0 ? Math.max(count * 12, 6) : 3;
-    ctx.fillStyle = count > 0 ? '#8fb591' : '#3a4149';
-    ctx.beginPath();
-    ctx.roundRect(x, barY - h, 56, h, 4);
-    ctx.fill();
-    ctx.fillStyle = '#9b9690';
-    ctx.font = '11px -apple-system, BlinkMacSystemFont, sans-serif';
-    ctx.fillText(dayNames[d.getDay()], x + 24, barY + 16);
   }
 
-  // Footer
-  ctx.fillStyle = '#7a7570';
-  ctx.font = '11px -apple-system, BlinkMacSystemFont, sans-serif';
-  ctx.fillText(`Generated ${new Date().toLocaleDateString()} · Steady`, 32, 380);
-
-  return canvas;
-}
-
-// ============================================================================
-// SETTINGS VIEW (with theme, reminders)
-// ============================================================================
-
-function initSettings() {
-  const settings = storage.getSettings();
-
-  // Sound toggle
-  const sound = $('setting-sound');
-  if (sound) { sound.checked = settings.sound; sound.onchange = (e) => storage.saveSettings({ sound: e.target.checked }); }
-
-  // Reduced motion
-  const motion = $('setting-motion');
-  if (motion) {
-    motion.checked = settings.reducedMotion;
-    motion.onchange = (e) => {
-      storage.saveSettings({ reducedMotion: e.target.checked });
-      document.body.classList.toggle('reduced-motion', e.target.checked);
-    };
+  setTheme(theme) {
+    const settings = getSettings();
+    settings.theme = theme;
+    saveSettings(settings);
+    this.applyTheme(theme);
+    document.querySelectorAll('.theme-option').forEach(btn => {
+      btn.classList.toggle('active', btn.dataset.theme === theme);
+    });
   }
 
-  // Theme toggle
-  setupThemeToggle(settings.theme || 'dark');
-
-  // Reminder
-  setupReminderSettings(settings);
-
-  // Export
-  const expBtn = $('btn-export');
-  if (expBtn) {
-    expBtn.onclick = () => {
-      const blob = new Blob([storage.exportAllData()], { type: 'application/json' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `steady-data-${storage.getToday()}.json`;
-      a.click();
-      URL.revokeObjectURL(url);
-      showToast('Data exported');
-    };
-  }
-
-  // Import
-  const impBtn = $('btn-import'), impFile = $('import-file');
-  if (impBtn && impFile) {
-    impBtn.onclick = () => impFile.click();
-    impFile.onchange = (e) => {
-      const file = e.target.files?.[0];
-      if (!file) return;
-      const reader = new FileReader();
-      reader.onload = (ev) => {
-        const result = storage.importData(ev.target?.result);
-        showToast(result.success ? 'Data imported' : `Error: ${result.error}`);
-        if (result.success) navigate(appState.currentView);
-      };
-      reader.readAsText(file);
-    };
-  }
-
-  // Clear
-  const clrBtn = $('btn-clear-data');
-  if (clrBtn) {
-    clrBtn.onclick = () => {
-      if (confirm('Are you sure? This will delete all your data permanently.')) {
-        storage.clearAllData();
-        showToast('All data cleared');
-        navigate('home');
-      }
-    };
-  }
-}
-
-function setupThemeToggle(currentTheme) {
-  const row = $('theme-toggle-row');
-  if (!row) return;
-  const buttons = row.querySelectorAll('.theme-option');
-  buttons.forEach(btn => {
-    btn.classList.toggle('active', btn.dataset.theme === currentTheme);
-    btn.onclick = () => {
-      buttons.forEach(b => b.classList.remove('active'));
-      btn.classList.add('active');
-      const theme = btn.dataset.theme;
-      storage.saveSettings({ theme });
-      applyTheme(theme);
-    };
-  });
-}
-
-function setupReminderSettings(settings) {
-  const toggle = $('setting-reminder');
-  const timeRow = $('reminder-time-row');
-  const timeInput = $('setting-reminder-time');
-
-  if (!toggle) return;
-
-  toggle.checked = settings.reminderEnabled || false;
-  if (timeRow) timeRow.style.display = toggle.checked ? 'flex' : 'none';
-  if (timeInput) timeInput.value = settings.reminderTime || '09:00';
-
-  toggle.onchange = async (e) => {
-    const enabled = e.target.checked;
-    if (timeRow) timeRow.style.display = enabled ? 'flex' : 'none';
-
-    if (enabled) {
-      // Request notification permission
-      if ('Notification' in window && Notification.permission === 'default') {
-        const perm = await Notification.requestPermission();
-        if (perm !== 'granted') {
-          toggle.checked = false;
-          if (timeRow) timeRow.style.display = 'none';
-          showToast('Notifications blocked by browser');
-          storage.saveSettings({ reminderEnabled: false });
-          return;
-        }
-      }
-      scheduleReminder(timeInput?.value || '09:00');
+  applyTheme(theme) {
+    if (theme === 'auto') {
+      const dark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+      document.documentElement.setAttribute('data-theme', dark ? 'dark' : 'light');
     } else {
-      cancelReminder();
+      document.documentElement.setAttribute('data-theme', theme);
     }
-    storage.saveSettings({ reminderEnabled: enabled });
-  };
+  }
 
-  if (timeInput) {
-    timeInput.onchange = (e) => {
-      storage.saveSettings({ reminderTime: e.target.value });
-      if (toggle.checked) scheduleReminder(e.target.value);
+  applyReducedMotion(enabled) {
+    document.documentElement.setAttribute('data-reduced-motion', enabled ? 'true' : 'false');
+  }
+
+  exportData() {
+    const json = exportAllData();
+    const blob = new Blob([json], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'steady-data.json';
+    a.click();
+    URL.revokeObjectURL(url);
+    this.showToast('Data exported');
+  }
+
+  importData(input) {
+    const file = input.files ? input.files[0] : null;
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      try {
+        importAllData(reader.result);
+        this.showToast('Data imported');
+        this.renderCurrentView();
+      } catch (e) {
+        this.showToast('Import failed');
+      }
     };
+    reader.readAsText(file);
+    input.value = '';
   }
 
-  // Schedule on load if enabled
-  if (settings.reminderEnabled && 'Notification' in window && Notification.permission === 'granted') {
-    scheduleReminder(settings.reminderTime || '09:00');
+  confirmClearData() {
+    this.showModal('Clear All Data', 'This will permanently delete all your data. This cannot be undone.', () => {
+      clearAllData();
+      this.showToast('All data cleared');
+      this.renderCurrentView();
+    });
   }
-}
 
-// ============================================================================
-// DAILY REMINDER (in-app timer — works while tab is open / SW is alive)
-// ============================================================================
-
-let reminderTimer = null;
-
-function scheduleReminder(timeStr) {
-  cancelReminder();
-  const [hours, minutes] = timeStr.split(':').map(Number);
-  const now = new Date();
-  const target = new Date(now);
-  target.setHours(hours, minutes, 0, 0);
-  if (target <= now) target.setDate(target.getDate() + 1);
-
-  const ms = target - now;
-  reminderTimer = setTimeout(() => {
-    showReminderNotification();
-    // Reschedule for tomorrow
-    scheduleReminder(timeStr);
-  }, ms);
-}
-
-function cancelReminder() {
-  if (reminderTimer) { clearTimeout(reminderTimer); reminderTimer = null; }
-}
-
-function showReminderNotification() {
-  if ('Notification' in window && Notification.permission === 'granted') {
-    const messages = [
-      'Time for today\'s practice.',
-      'A few minutes of training builds real resilience.',
-      'Your daily practice is waiting.',
-      'Train your nervous system. It takes 3 minutes.',
-    ];
-    const msg = messages[Math.floor(Math.random() * messages.length)];
-    try {
-      new Notification('Steady', { body: msg, icon: './icons/icon-192.png', tag: 'steady-reminder' });
-    } catch (e) {
-      // Notification not supported in this context
+  installPWA() {
+    if (this.deferredInstallPrompt) {
+      this.deferredInstallPrompt.prompt();
     }
   }
-}
 
-// ============================================================================
-// ONBOARDING FLOW (V3)
-// ============================================================================
+  // ============================================
+  // ONBOARDING
+  // ============================================
 
-function showOnboarding() {
-  const overlay = $('onboarding-overlay');
-  if (!overlay) return;
-  overlay.style.display = 'flex';
-
-  let currentStep = 0;
-  const steps = overlay.querySelectorAll('.onboard-step');
-  const profile = { primaryStressors: [], preferredModalities: [], availableMinutes: 3, goals: ['build-resilience'] };
-
-  function showStep(idx) {
-    steps.forEach((s, i) => {
-      s.style.display = i === idx ? 'block' : 'none';
-      if (i === idx) {
-        s.classList.add('narration-enter');
-        setTimeout(() => s.classList.remove('narration-enter'), 400);
-      }
+  onboardNext(step) {
+    document.querySelectorAll('.onboarding-step').forEach(s => (s.style.display = 'none'));
+    const stepEl = document.getElementById(`onboard-step-${step}`);
+    if (stepEl) stepEl.style.display = 'flex';
+    document.querySelectorAll('.step-dot').forEach(d => {
+      d.classList.toggle('active', parseInt(d.dataset.step) <= step);
     });
   }
 
-  function collectSelections(stepEl, field) {
-    const selected = stepEl.querySelectorAll('.onboard-chip.selected');
-    profile[field] = Array.from(selected).map(el => el.dataset.value);
+  toggleChip(el) {
+    el.classList.toggle('active');
   }
 
-  // Chip toggle behavior
-  overlay.querySelectorAll('.onboard-chip').forEach(chip => {
-    chip.addEventListener('click', () => {
-      chip.classList.toggle('selected');
-      hapticTap();
-    });
-  });
-
-  // Next buttons
-  overlay.querySelectorAll('.onboard-next').forEach(btn => {
-    btn.addEventListener('click', () => {
-      // Collect data from current step
-      if (currentStep === 1) collectSelections(steps[1], 'preferredModalities');
-      if (currentStep === 2) collectSelections(steps[2], 'goals');
-
-      currentStep++;
-      if (currentStep >= steps.length) {
-        // Save profile and close
-        storage.saveProfile(profile);
-        overlay.style.display = 'none';
-        // Refresh home with new profile data
-        navigate('home');
-      } else {
-        showStep(currentStep);
-      }
-    });
-  });
-
-  // Skip button
-  const skipBtn = overlay.querySelector('.onboard-skip');
-  if (skipBtn) {
-    skipBtn.addEventListener('click', () => {
-      storage.saveProfile({ ...profile, completed: true });
-      overlay.style.display = 'none';
-    });
+  skipOnboarding() {
+    saveProfile({ completed: true, preferredModalities: [], goals: [] });
+    // Program-first: auto-start the challenge program
+    this.ensureProgramStarted();
+    const onboardingEl = document.getElementById('onboarding');
+    if (onboardingEl) onboardingEl.style.display = 'none';
+    this.renderHome();
   }
 
-  showStep(0);
-}
+  completeOnboarding() {
+    const modalities = Array.from(document.querySelectorAll('#modality-chips .chip.active')).map(c => c.dataset.value);
+    const goals = Array.from(document.querySelectorAll('#goal-chips .chip.active')).map(c => c.dataset.value);
+    saveProfile({ completed: true, preferredModalities: modalities, goals: goals });
+    // Program-first: auto-start the challenge program
+    this.ensureProgramStarted();
+    const onboardingEl = document.getElementById('onboarding');
+    if (onboardingEl) onboardingEl.style.display = 'none';
+    this.renderHome();
+  }
 
-// ============================================================================
-// APP INITIALIZATION
-// ============================================================================
+  // ============================================
+  // SIGNAL TAP (RELIEF)
+  // ============================================
 
-function initializeApp() {
-  registerServiceWorker();
-  setupPWAInstall();
-  setupNavigation();
+  tapSignal(signalId) {
+    saveCheckIn({ primarySignal: signalId, timestamp: Date.now() });
+    const rec = getReliefRecommendation(signalId, exercises);
+    if (rec) {
+      this.recommendedExercise = rec;
+      const recEl = document.getElementById('relief-rec');
+      if (recEl) recEl.style.display = 'block';
+      const titleEl = document.getElementById('rec-title');
+      const durationEl = document.getElementById('rec-duration');
+      if (titleEl) titleEl.textContent = rec.title;
+      if (durationEl) durationEl.textContent = `${Math.ceil(rec.duration / 60)} min`;
+    }
+  }
 
-  // Initialize dual-layer storage (IndexedDB + localStorage)
-  // Non-blocking: app works immediately via localStorage while IDB syncs in background
-  storage.init().then(() => {
-    console.log('IndexedDB storage layer ready');
-    // Refresh current view in case IDB hydrated new data
-    navigate(appState.currentView);
-  }).catch(() => {
-    console.warn('IndexedDB init failed — using localStorage only');
-  });
+  // ============================================
+  // INSIGHTS
+  // ============================================
 
-  // Apply saved settings
-  const settings = storage.getSettings();
-  if (settings.reducedMotion) document.body.classList.add('reduced-motion');
-  applyTheme(settings.theme || 'dark');
+  renderInsights() {
+    const insights = getActiveInsights(2);
+    const container = document.getElementById('insights-container');
+    if (!container) return;
 
-  // Listen for OS theme changes (for auto mode)
-  window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
-    const s = storage.getSettings();
-    if (s.theme === 'auto') applyTheme('auto');
-  });
+    if (insights.length === 0) {
+      container.innerHTML = '';
+      return;
+    }
 
-  navigate('home');
+    container.innerHTML = insights
+      .map(
+        ins => `
+      <div class="insight-card" data-insight="${ins.id}">
+        <div class="insight-content">
+          <h4>${this.escapeHtml(ins.title)}</h4>
+          <p>${this.escapeHtml(ins.message)}</p>
+        </div>
+        <button class="btn-icon insight-dismiss" onclick="app.dismissInsight('${ins.id}')" aria-label="Dismiss">
+          <svg viewBox="0 0 24 24" width="16" height="16"><line x1="18" y1="6" x2="6" y2="18" stroke="currentColor" stroke-width="2"/><line x1="6" y1="6" x2="18" y2="18" stroke="currentColor" stroke-width="2"/></svg>
+        </button>
+      </div>
+    `
+      )
+      .join('');
+  }
 
-  // V3: Show onboarding for first-time users
-  if (!storage.hasCompletedOnboarding()) {
-    showOnboarding();
+  dismissInsight(id) {
+    dismissInsight(id);
+    this.renderInsights();
+  }
+
+  // ============================================
+  // TOP EXERCISES
+  // ============================================
+
+  renderTopExercises() {
+    const top = getMostUsedExercises(3);
+    const container = document.getElementById('top-exercises');
+    if (!container) return;
+
+    const list = document.getElementById('top-exercises-list');
+    if (!list) return;
+
+    if (top.length === 0) {
+      container.style.display = 'none';
+      return;
+    }
+
+    container.style.display = 'block';
+    list.innerHTML = top
+      .map(t => {
+        const ex = exercises.find(e => e.id === t.exerciseId);
+        if (!ex) return '';
+        return `<div class="exercise-card exercise-card--${ex.category}" onclick="app.launchPlayer('${ex.id}', '${ex.mode}')"><div class="exercise-card-content"><h4>${this.escapeHtml(ex.title)}</h4><span>${t.count} times</span></div></div>`;
+      })
+      .join('');
+  }
+
+  // ============================================
+  // UTILITIES
+  // ============================================
+
+  showModal(title, message, onConfirm) {
+    const titleEl = document.getElementById('modal-title');
+    const messageEl = document.getElementById('modal-message');
+    const confirmBtn = document.getElementById('modal-confirm-btn');
+    const modal = document.getElementById('confirm-modal');
+
+    if (titleEl) titleEl.textContent = title;
+    if (messageEl) messageEl.textContent = message;
+    if (modal) modal.style.display = 'flex';
+
+    if (confirmBtn) {
+      confirmBtn.onclick = () => {
+        onConfirm();
+        this.closeModal();
+      };
+    }
+  }
+
+  closeModal() {
+    const modal = document.getElementById('confirm-modal');
+    if (modal) modal.style.display = 'none';
+  }
+
+  showToast(message) {
+    const toast = document.getElementById('toast');
+    const messageEl = document.getElementById('toast-message');
+
+    if (!toast || !messageEl) return;
+
+    messageEl.textContent = message;
+    toast.style.display = 'block';
+    toast.classList.add('show');
+
+    setTimeout(() => {
+      toast.classList.remove('show');
+      setTimeout(() => {
+        toast.style.display = 'none';
+      }, 300);
+    }, 2000);
+  }
+
+  renderCurrentView() {
+    this.renderView(this.currentView);
+  }
+
+  renderStepDots() {
+    const count = this.player.getStepCount();
+    const dots = document.getElementById('step-dots');
+    if (!dots) return;
+
+    dots.innerHTML = Array.from({ length: count }, (_, i) => `<div class="step-dot ${i === 0 ? 'active' : ''}"></div>`).join('');
+  }
+
+  registerSW() {
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('/sw.js').catch(() => {
+        // Service worker registration failed, continue without it
+      });
+    }
+  }
+
+  setupReminder() {
+    const settings = getSettings();
+    if (!settings.reminderEnabled || !('Notification' in window)) return;
+    Notification.requestPermission();
+  }
+
+  escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
   }
 }
 
-// ============================================================================
-// ENTRY POINT
-// ============================================================================
+// Initialize the app
+const app = new SteadyApp();
+window.app = app; // Expose for onclick handlers
 
-if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', initializeApp);
-} else {
-  initializeApp();
-}
+export default app;
