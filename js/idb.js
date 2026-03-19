@@ -1,315 +1,312 @@
 /**
- * IndexedDB module for Steady — durable, high-capacity storage layer
- *
- * Provides async persistence alongside localStorage. The storage module
- * uses localStorage for synchronous reads and writes through to IndexedDB
- * for durability and larger quota (~50MB+ vs localStorage's ~5-10MB).
- *
- * Object stores mirror the localStorage key structure:
- *   - settings: single record (key: 'settings')
- *   - checkins: keyed by date string (YYYY-MM-DD)
- *   - sessions: keyed by timestamp
- *   - journal:  keyed by timestamp
- *   - favorites: single record (key: 'favorites')
+ * Steady - IndexedDB Backup Layer
+ * Mirrors critical data to IndexedDB as async backup
+ * @module idb
  */
 
-const DB_NAME = 'steady';
+const DB_NAME = 'steady-backup';
 const DB_VERSION = 1;
-const STORES = ['settings', 'checkins', 'sessions', 'journal', 'favorites'];
+const STORES = ['sessions', 'journal', 'reflections', 'checkins'];
 
-let dbPromise = null;
+let dbInstance = null;
 
 /**
- * Opens (or creates) the IndexedDB database
- * @returns {Promise<IDBDatabase>}
+ * Initialize IndexedDB connection
+ * Creates object stores if needed
+ * @returns {Promise<IDBDatabase>} Database instance
  */
-function openDB() {
-  if (dbPromise) return dbPromise;
-
-  dbPromise = new Promise((resolve, reject) => {
-    if (!('indexedDB' in window)) {
-      reject(new Error('IndexedDB not supported'));
+export function initDB() {
+  return new Promise((resolve, reject) => {
+    if (dbInstance) {
+      resolve(dbInstance);
       return;
     }
 
     const request = indexedDB.open(DB_NAME, DB_VERSION);
 
+    request.onerror = () => {
+      console.error('IndexedDB open error:', request.error);
+      reject(request.error);
+    };
+
+    request.onsuccess = () => {
+      dbInstance = request.result;
+      resolve(dbInstance);
+    };
+
     request.onupgradeneeded = (event) => {
       const db = event.target.result;
+
       STORES.forEach((storeName) => {
         if (!db.objectStoreNames.contains(storeName)) {
-          db.createObjectStore(storeName);
+          const store = db.createObjectStore(storeName, { keyPath: 'id' });
+          store.createIndex('timestamp', 'timestamp', { unique: false });
         }
       });
     };
-
-    request.onsuccess = () => resolve(request.result);
-    request.onerror = () => reject(request.error);
   });
-
-  return dbPromise;
 }
 
 /**
- * Performs a single put operation on a store
- * @param {string} storeName - Object store name
- * @param {string} key - Record key
- * @param {any} value - Value to store
+ * Backup sessions to IndexedDB
+ * @param {Array<Object>} sessions - Sessions array
  * @returns {Promise<void>}
  */
-export async function put(storeName, key, value) {
+export async function backupSessions(sessions) {
   try {
-    const db = await openDB();
-    return new Promise((resolve, reject) => {
-      const tx = db.transaction(storeName, 'readwrite');
-      tx.objectStore(storeName).put(value, key);
-      tx.oncomplete = () => resolve();
-      tx.onerror = () => reject(tx.error);
+    const db = await initDB();
+    const tx = db.transaction('sessions', 'readwrite');
+    const store = tx.objectStore('sessions');
+
+    // Clear existing sessions
+    await new Promise((resolve, reject) => {
+      const clearReq = store.clear();
+      clearReq.onsuccess = resolve;
+      clearReq.onerror = reject;
     });
-  } catch (err) {
-    console.warn('IDB put failed:', err.message);
-  }
-}
 
-/**
- * Gets a single record from a store
- * @param {string} storeName - Object store name
- * @param {string} key - Record key
- * @returns {Promise<any|undefined>}
- */
-export async function get(storeName, key) {
-  try {
-    const db = await openDB();
-    return new Promise((resolve, reject) => {
-      const tx = db.transaction(storeName, 'readonly');
-      const request = tx.objectStore(storeName).get(key);
-      request.onsuccess = () => resolve(request.result);
-      request.onerror = () => reject(request.error);
-    });
-  } catch (err) {
-    console.warn('IDB get failed:', err.message);
-    return undefined;
-  }
-}
-
-/**
- * Gets all records from a store
- * @param {string} storeName - Object store name
- * @returns {Promise<Array<{key: string, value: any}>>}
- */
-export async function getAll(storeName) {
-  try {
-    const db = await openDB();
-    return new Promise((resolve, reject) => {
-      const tx = db.transaction(storeName, 'readonly');
-      const store = tx.objectStore(storeName);
-      const results = [];
-
-      const cursorReq = store.openCursor();
-      cursorReq.onsuccess = (event) => {
-        const cursor = event.target.result;
-        if (cursor) {
-          results.push({ key: cursor.key, value: cursor.value });
-          cursor.continue();
-        } else {
-          resolve(results);
-        }
+    // Add new sessions with IDs
+    sessions.forEach((session, index) => {
+      const sessionWithId = {
+        id: session.id || `session_${index}_${Date.now()}`,
+        ...session,
       };
-      cursorReq.onerror = () => reject(cursorReq.error);
+      store.add(sessionWithId);
     });
-  } catch (err) {
-    console.warn('IDB getAll failed:', err.message);
-    return [];
+
+    return new Promise((resolve, reject) => {
+      tx.onsuccess = resolve;
+      tx.onerror = reject;
+    });
+  } catch (e) {
+    console.error('Failed to backup sessions:', e);
   }
 }
 
 /**
- * Deletes a single record from a store
- * @param {string} storeName - Object store name
- * @param {string} key - Record key
+ * Backup journal entries to IndexedDB
+ * @param {Array<Object>} entries - Journal entries array
  * @returns {Promise<void>}
  */
-export async function remove(storeName, key) {
+export async function backupJournal(entries) {
   try {
-    const db = await openDB();
-    return new Promise((resolve, reject) => {
-      const tx = db.transaction(storeName, 'readwrite');
-      tx.objectStore(storeName).delete(key);
-      tx.oncomplete = () => resolve();
-      tx.onerror = () => reject(tx.error);
+    const db = await initDB();
+    const tx = db.transaction('journal', 'readwrite');
+    const store = tx.objectStore('journal');
+
+    // Clear existing entries
+    await new Promise((resolve, reject) => {
+      const clearReq = store.clear();
+      clearReq.onsuccess = resolve;
+      clearReq.onerror = reject;
     });
-  } catch (err) {
-    console.warn('IDB remove failed:', err.message);
+
+    // Add new entries with IDs
+    entries.forEach((entry, index) => {
+      const entryWithId = {
+        id: entry.id || `journal_${index}_${Date.now()}`,
+        ...entry,
+      };
+      store.add(entryWithId);
+    });
+
+    return new Promise((resolve, reject) => {
+      tx.onsuccess = resolve;
+      tx.onerror = reject;
+    });
+  } catch (e) {
+    console.error('Failed to backup journal:', e);
   }
 }
 
 /**
- * Clears all records from all Steady stores
+ * Backup reflections to IndexedDB
+ * @param {Array<Object>} reflections - Reflections array
  * @returns {Promise<void>}
  */
-export async function clearAll() {
+export async function backupReflections(reflections) {
   try {
-    const db = await openDB();
+    const db = await initDB();
+    const tx = db.transaction('reflections', 'readwrite');
+    const store = tx.objectStore('reflections');
+
+    // Clear existing reflections
+    await new Promise((resolve, reject) => {
+      const clearReq = store.clear();
+      clearReq.onsuccess = resolve;
+      clearReq.onerror = reject;
+    });
+
+    // Add new reflections with IDs
+    reflections.forEach((reflection, index) => {
+      const reflectionWithId = {
+        id: reflection.id || `reflection_${index}_${Date.now()}`,
+        ...reflection,
+      };
+      store.add(reflectionWithId);
+    });
+
     return new Promise((resolve, reject) => {
-      const tx = db.transaction(STORES, 'readwrite');
-      STORES.forEach((storeName) => {
-        tx.objectStore(storeName).clear();
+      tx.onsuccess = resolve;
+      tx.onerror = reject;
+    });
+  } catch (e) {
+    console.error('Failed to backup reflections:', e);
+  }
+}
+
+/**
+ * Backup check-ins to IndexedDB
+ * @param {Array<Object>} checkins - Check-ins array
+ * @returns {Promise<void>}
+ */
+export async function backupCheckIns(checkins) {
+  try {
+    const db = await initDB();
+    const tx = db.transaction('checkins', 'readwrite');
+    const store = tx.objectStore('checkins');
+
+    // Clear existing check-ins
+    await new Promise((resolve, reject) => {
+      const clearReq = store.clear();
+      clearReq.onsuccess = resolve;
+      clearReq.onerror = reject;
+    });
+
+    // Add new check-ins with IDs
+    checkins.forEach((checkin, index) => {
+      const checkinWithId = {
+        id: checkin.id || `checkin_${index}_${Date.now()}`,
+        ...checkin,
+      };
+      store.add(checkinWithId);
+    });
+
+    return new Promise((resolve, reject) => {
+      tx.onsuccess = resolve;
+      tx.onerror = reject;
+    });
+  } catch (e) {
+    console.error('Failed to backup check-ins:', e);
+  }
+}
+
+/**
+ * Restore all data from IndexedDB backup
+ * Used when localStorage is empty
+ * @returns {Promise<Object>} All backed up data
+ */
+export async function restoreFromBackup() {
+  try {
+    const db = await initDB();
+    const restoredData = {
+      sessions: [],
+      journal: [],
+      reflections: [],
+      checkins: [],
+    };
+
+    // Restore each store
+    for (const storeName of STORES) {
+      restoredData[storeName] = await new Promise((resolve, reject) => {
+        const tx = db.transaction(storeName, 'readonly');
+        const store = tx.objectStore(storeName);
+        const getAllReq = store.getAll();
+
+        getAllReq.onsuccess = () => {
+          resolve(getAllReq.result || []);
+        };
+
+        getAllReq.onerror = reject;
       });
-      tx.oncomplete = () => resolve();
-      tx.onerror = () => reject(tx.error);
-    });
-  } catch (err) {
-    console.warn('IDB clearAll failed:', err.message);
+    }
+
+    return restoredData;
+  } catch (e) {
+    console.error('Failed to restore from backup:', e);
+    return {
+      sessions: [],
+      journal: [],
+      reflections: [],
+      checkins: [],
+    };
   }
 }
 
 /**
- * Bulk puts multiple records into a store in a single transaction
- * @param {string} storeName - Object store name
- * @param {Array<{key: string, value: any}>} records - Records to store
+ * Get backup stats (how much data is stored)
+ * @returns {Promise<Object>} {storeName: count}
+ */
+export async function getBackupStats() {
+  try {
+    const db = await initDB();
+    const stats = {};
+
+    for (const storeName of STORES) {
+      stats[storeName] = await new Promise((resolve, reject) => {
+        const tx = db.transaction(storeName, 'readonly');
+        const store = tx.objectStore(storeName);
+        const countReq = store.count();
+
+        countReq.onsuccess = () => {
+          resolve(countReq.result);
+        };
+
+        countReq.onerror = reject;
+      });
+    }
+
+    return stats;
+  } catch (e) {
+    console.error('Failed to get backup stats:', e);
+    return {};
+  }
+}
+
+/**
+ * Clear all IndexedDB data
  * @returns {Promise<void>}
  */
-export async function putBatch(storeName, records) {
+export async function clearBackup() {
   try {
-    const db = await openDB();
-    return new Promise((resolve, reject) => {
-      const tx = db.transaction(storeName, 'readwrite');
-      const store = tx.objectStore(storeName);
-      records.forEach(({ key, value }) => {
-        store.put(value, key);
+    const db = await initDB();
+
+    for (const storeName of STORES) {
+      await new Promise((resolve, reject) => {
+        const tx = db.transaction(storeName, 'readwrite');
+        const store = tx.objectStore(storeName);
+        const clearReq = store.clear();
+
+        clearReq.onsuccess = resolve;
+        clearReq.onerror = reject;
       });
-      tx.oncomplete = () => resolve();
-      tx.onerror = () => reject(tx.error);
-    });
-  } catch (err) {
-    console.warn('IDB putBatch failed:', err.message);
+    }
+  } catch (e) {
+    console.error('Failed to clear backup:', e);
   }
 }
 
 /**
- * Hydrates localStorage from IndexedDB on startup.
- * Only writes to localStorage keys that don't already exist,
- * so localStorage edits are preserved if IDB is stale.
- * @param {string} prefix - The localStorage key prefix (e.g. 'steady_')
- * @returns {Promise<number>} Number of keys hydrated
+ * Sync helper - call this after saving data to localStorage
+ * Automatically backs up critical data to IndexedDB
+ * @param {Object} options - {sessions, journal, reflections, checkins}
+ * @returns {Promise<void>}
  */
-export async function hydrateFromIDB(prefix) {
-  let hydrated = 0;
+export async function syncBackup(options = {}) {
   try {
-    // Settings
-    const settings = await get('settings', 'settings');
-    if (settings && !localStorage.getItem(`${prefix}settings`)) {
-      localStorage.setItem(`${prefix}settings`, JSON.stringify(settings));
-      hydrated++;
+    if (options.sessions) {
+      await backupSessions(options.sessions);
     }
-
-    // Favorites
-    const favorites = await get('favorites', 'favorites');
-    if (favorites && !localStorage.getItem(`${prefix}favorites`)) {
-      localStorage.setItem(`${prefix}favorites`, JSON.stringify(favorites));
-      hydrated++;
+    if (options.journal) {
+      await backupJournal(options.journal);
     }
-
-    // Check-ins
-    const checkins = await getAll('checkins');
-    checkins.forEach(({ key, value }) => {
-      const lsKey = `${prefix}checkin_${key}`;
-      if (!localStorage.getItem(lsKey)) {
-        localStorage.setItem(lsKey, JSON.stringify(value));
-        hydrated++;
-      }
-    });
-
-    // Sessions
-    const sessions = await getAll('sessions');
-    sessions.forEach(({ key, value }) => {
-      const lsKey = `${prefix}session_${key}`;
-      if (!localStorage.getItem(lsKey)) {
-        localStorage.setItem(lsKey, JSON.stringify(value));
-        hydrated++;
-      }
-    });
-
-    // Journal
-    const journalEntries = await getAll('journal');
-    journalEntries.forEach(({ key, value }) => {
-      const lsKey = `${prefix}journal_${key}`;
-      if (!localStorage.getItem(lsKey)) {
-        localStorage.setItem(lsKey, JSON.stringify(value));
-        hydrated++;
-      }
-    });
-  } catch (err) {
-    console.warn('IDB hydration failed:', err.message);
-  }
-  return hydrated;
-}
-
-/**
- * Syncs all localStorage data into IndexedDB (initial migration).
- * Call once on first load to seed IDB from any existing localStorage data.
- * @param {string} prefix - The localStorage key prefix
- * @returns {Promise<number>} Number of keys synced
- */
-export async function syncToIDB(prefix) {
-  let synced = 0;
-  try {
-    const checkinRecords = [];
-    const sessionRecords = [];
-    const journalRecords = [];
-
-    for (let i = 0; i < localStorage.length; i++) {
-      const key = localStorage.key(i);
-      if (!key || !key.startsWith(prefix)) continue;
-
-      const cleanKey = key.substring(prefix.length);
-      const value = JSON.parse(localStorage.getItem(key));
-
-      if (cleanKey === 'settings') {
-        await put('settings', 'settings', value);
-        synced++;
-      } else if (cleanKey === 'favorites') {
-        await put('favorites', 'favorites', value);
-        synced++;
-      } else if (cleanKey.startsWith('checkin_')) {
-        const dateKey = cleanKey.substring('checkin_'.length);
-        checkinRecords.push({ key: dateKey, value });
-      } else if (cleanKey.startsWith('session_')) {
-        const tsKey = cleanKey.substring('session_'.length);
-        sessionRecords.push({ key: tsKey, value });
-      } else if (cleanKey.startsWith('journal_')) {
-        const tsKey = cleanKey.substring('journal_'.length);
-        journalRecords.push({ key: tsKey, value });
-      }
+    if (options.reflections) {
+      await backupReflections(options.reflections);
     }
-
-    if (checkinRecords.length > 0) {
-      await putBatch('checkins', checkinRecords);
-      synced += checkinRecords.length;
+    if (options.checkins) {
+      await backupCheckIns(options.checkins);
     }
-    if (sessionRecords.length > 0) {
-      await putBatch('sessions', sessionRecords);
-      synced += sessionRecords.length;
-    }
-    if (journalRecords.length > 0) {
-      await putBatch('journal', journalRecords);
-      synced += journalRecords.length;
-    }
-  } catch (err) {
-    console.warn('IDB sync failed:', err.message);
-  }
-  return synced;
-}
-
-/**
- * Check if IndexedDB is available and working
- * @returns {Promise<boolean>}
- */
-export async function isAvailable() {
-  try {
-    await openDB();
-    return true;
-  } catch {
-    return false;
+  } catch (e) {
+    console.error('Sync backup failed:', e);
   }
 }

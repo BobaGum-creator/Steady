@@ -1,455 +1,531 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="dark">
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1">
-  <meta name="theme-color" content="#1a1d21">
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="theme-color" content="#1a1a1a">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-  <meta name="apple-mobile-web-app-title" content="Steady">
-  <link rel="manifest" href="./manifest.json">
-  <link rel="stylesheet" href="./styles.css">
-  <link rel="icon" href="./icons/favicon-32.png" sizes="32x32" type="image/png">
+  <meta name="description" content="Train your nervous system to handle stress better">
   <title>Steady</title>
+  <link rel="manifest" href="manifest.json">
+  <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-  <div id="app">
-    <!-- Onboarding Overlay (V3) -->
-    <div id="onboarding-overlay" class="onboard-overlay" style="display:none;">
-      <div class="onboard-container">
-        <!-- Step 1: Welcome / Mission -->
-        <div class="onboard-step">
-          <h2 class="onboard-title">Steady</h2>
-          <p class="onboard-desc">Train your nervous system to handle stress better. One short practice a day builds real resilience. Relief tools are here when you need them.</p>
-          <button class="btn btn-primary btn-large onboard-next">Get Started</button>
-          <button class="btn btn-ghost onboard-skip">Skip setup</button>
+  <div class="app-container" id="app">
+
+    <!-- ONBOARDING OVERLAY -->
+    <div class="onboarding-overlay" id="onboarding" style="display:none">
+      <div class="onboarding-card">
+        <!-- Step indicators -->
+        <div class="onboarding-steps">
+          <div class="step-dot active" data-step="1"></div>
+          <div class="step-dot" data-step="2"></div>
+          <div class="step-dot" data-step="3"></div>
         </div>
 
-        <!-- Step 2: Preferred modalities -->
-        <div class="onboard-step" style="display:none;">
-          <h2 class="onboard-title">What draws you?</h2>
-          <p class="onboard-desc">Pick the types of exercises you're interested in.</p>
-          <div class="onboard-chips">
-            <button class="onboard-chip" data-value="breathwork">Breathing</button>
-            <button class="onboard-chip" data-value="body">Body-based</button>
-            <button class="onboard-chip" data-value="mind">Mindfulness</button>
-            <button class="onboard-chip" data-value="quick">Quick tools</button>
+        <!-- Step 1: Welcome -->
+        <div class="onboarding-step active" id="onboard-step-1">
+          <h1 class="onboarding-title">Steady</h1>
+          <p class="onboarding-body">Train your nervous system to handle stress better. One short practice a day builds real resilience. Relief tools are here when you need them.</p>
+          <button class="btn-primary" onclick="app.onboardNext(2)">Get Started</button>
+          <button class="btn-ghost" onclick="app.skipOnboarding()">Skip setup</button>
+        </div>
+
+        <!-- Step 2: Modalities -->
+        <div class="onboarding-step" id="onboard-step-2" style="display:none">
+          <h2>What draws you?</h2>
+          <div class="chip-selector" id="modality-chips">
+            <button class="chip" data-value="breathing" onclick="app.toggleChip(this)">Breathing</button>
+            <button class="chip" data-value="body" onclick="app.toggleChip(this)">Body-based</button>
+            <button class="chip" data-value="mindfulness" onclick="app.toggleChip(this)">Mindfulness</button>
+            <button class="chip" data-value="quick" onclick="app.toggleChip(this)">Quick tools</button>
           </div>
-          <button class="btn btn-primary btn-large onboard-next">Next</button>
+          <button class="btn-primary" onclick="app.onboardNext(3)">Next</button>
         </div>
 
         <!-- Step 3: Goals -->
-        <div class="onboard-step" style="display:none;">
-          <h2 class="onboard-title">What matters most?</h2>
-          <p class="onboard-desc">We'll shape your experience around this.</p>
-          <div class="onboard-chips">
-            <button class="onboard-chip" data-value="build-resilience">Build stress resilience</button>
-            <button class="onboard-chip" data-value="calm-down">Calm down faster</button>
-            <button class="onboard-chip" data-value="sleep-better">Sleep better</button>
+        <div class="onboarding-step" id="onboard-step-3" style="display:none">
+          <h2>What matters most?</h2>
+          <div class="chip-selector" id="goal-chips">
+            <button class="chip" data-value="resilience" onclick="app.toggleChip(this)">Build stress resilience</button>
+            <button class="chip" data-value="calm" onclick="app.toggleChip(this)">Calm down faster</button>
+            <button class="chip" data-value="sleep" onclick="app.toggleChip(this)">Sleep better</button>
           </div>
-          <button class="btn btn-primary btn-large onboard-next">Let's go</button>
+          <button class="btn-primary" onclick="app.completeOnboarding()">Let's go</button>
         </div>
       </div>
     </div>
 
-    <!-- Home View -->
-    <section id="view-home" class="view active">
-      <header class="home-header">
-        <h1 class="app-title">Steady</h1>
-        <p class="app-tagline" id="home-tagline">Train your resilience.</p>
-      </header>
-
-      <!-- V6: Today's Practice — the training door -->
-      <div class="practice-card" id="practice-card">
-        <div class="practice-header">
-          <span class="practice-label">Today's Practice</span>
-          <span class="practice-streak" id="practice-streak"></span>
-        </div>
-        <div class="practice-body" id="practice-body">
-          <!-- Populated by JS: exercise title, duration, why-it-matters -->
-        </div>
-        <div class="practice-action">
-          <button class="btn btn-primary btn-large" id="btn-practice" aria-label="Start today's practice">Begin Practice</button>
-        </div>
-      </div>
-
-      <!-- V6: Relief section — the relief door -->
-      <div class="relief-section" id="relief-section">
-        <div class="relief-header">
-          <span class="section-label">Need relief now?</span>
-        </div>
-
-        <!-- Signal grid -->
-        <div class="signal-section" id="signal-section">
-          <label class="signal-section-label">What feels strongest?</label>
-          <div class="signal-grid" id="signal-grid">
-            <button class="signal-card" data-signal="mind">
-              <span class="signal-icon"><svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="3" stroke="currentColor" stroke-width="1.5"/><circle cx="12" cy="12" r="7" stroke="currentColor" stroke-width="1" opacity=".35"/></svg></span>
-              <span class="signal-name">Racing Mind</span>
-              <span class="signal-hint">Thoughts won't quiet down</span>
-            </button>
-            <button class="signal-card" data-signal="body">
-              <span class="signal-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="8" y1="5" x2="8" y2="19"/><line x1="16" y1="5" x2="16" y2="19"/></svg></span>
-              <span class="signal-name">Tight Body</span>
-              <span class="signal-hint">Tension in muscles or jaw</span>
-            </button>
-            <button class="signal-card" data-signal="breath">
-              <span class="signal-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M2 12c2-4 4-4 6 0s4 4 6 0 4-4 6 0"/></svg></span>
-              <span class="signal-name">Shallow Breathing</span>
-              <span class="signal-hint">Can't take a full breath</span>
-            </button>
-            <button class="signal-card" data-signal="pressure">
-              <span class="signal-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="7,15 12,10 17,15"/><polyline points="7,19 12,14 17,19"/></svg></span>
-              <span class="signal-name">Internal Pressure</span>
-              <span class="signal-hint">Restless or uneasy feeling</span>
-            </button>
+    <!-- HOME VIEW -->
+    <div class="view active" id="view-home">
+      <div class="view-content">
+        <header class="view-header home-header">
+          <h1 class="app-title">Steady</h1>
+          <div class="home-streak" id="home-streak" style="display:none">
+            <svg viewBox="0 0 20 20" width="16" height="16"><path d="M10 2 C10 2 4 8 4 12a6 6 0 0012 0c0-4-6-10-6-10z" fill="var(--accent)" opacity="0.8"/></svg>
+            <span id="home-streak-count"></span>
           </div>
-        </div>
+        </header>
 
-        <!-- V6: Inline relief recommendation (populated by JS on signal tap) -->
-        <div class="relief-recommendation" id="relief-recommendation" style="display:none;"></div>
+        <!-- TRAINING HERO BLOCK -->
+        <div class="training-hero" id="training-hero">
+          <!-- Phase indicator -->
+          <div class="training-phase" id="training-phase"></div>
 
-        <!-- Quick actions -->
-        <div class="quick-actions">
-          <button class="btn btn-secondary btn-large" id="btn-emergency" aria-label="Start emergency calm exercise">Emergency Calm</button>
-        </div>
-      </div>
-
-      <!-- V5: Insight Cards -->
-      <div id="insight-cards" class="insight-cards-container">
-        <!-- Populated by JS: max 2 contextual insight cards -->
-      </div>
-
-      <!-- Recent favorites -->
-      <div class="recent-section" id="recent-section">
-        <h2 class="section-title">What's worked for you</h2>
-        <div class="recent-list" id="recent-list">
-          <!-- Populated by JS -->
-        </div>
-      </div>
-    </section>
-
-    <!-- Library View -->
-    <section id="view-library" class="view">
-      <header class="view-header">
-        <h1>Exercises</h1>
-      </header>
-
-      <!-- Category filter pills -->
-      <div class="category-pills" id="category-pills">
-        <button class="pill active" data-category="all">All</button>
-        <button class="pill" data-category="training">Training</button>
-        <button class="pill" data-category="relief">Relief</button>
-        <button class="pill" data-category="favorites">Saved</button>
-        <button class="pill" data-category="breathwork">Breathwork</button>
-        <button class="pill" data-category="body">Body</button>
-        <button class="pill" data-category="mind">Mind</button>
-        <button class="pill" data-category="quick">Quick</button>
-      </div>
-
-      <!-- Exercise list -->
-      <div class="exercise-list" id="exercise-list">
-        <!-- Populated by JS: exercise cards -->
-      </div>
-    </section>
-
-    <!-- Player View -->
-    <section id="view-player" class="view player-view">
-      <!-- Top bar with back button -->
-      <div class="player-top">
-        <button class="btn btn-ghost" id="player-back" aria-label="Close exercise">✕</button>
-        <span class="player-title" id="player-title"></span>
-        <span class="player-timer" id="player-timer">0:00</span>
-      </div>
-
-      <!-- Pre-exercise state check (V4: 4 signals × 3 levels) -->
-      <div class="player-pre" id="player-pre">
-        <div class="state-check" id="state-check-pre">
-          <h3 class="state-check-title">Quick body check</h3>
-          <div class="signal-row" data-signal="mind">
-            <div class="signal-row-label"><svg viewBox="0 0 24 24" fill="none" style="width:18px;height:18px;vertical-align:middle;margin-right:4px"><circle cx="12" cy="12" r="3" stroke="currentColor" stroke-width="1.5"/><circle cx="12" cy="12" r="7" stroke="currentColor" stroke-width="1" opacity=".35"/></svg> Mind Speed</div>
-            <div class="signal-levels">
-              <button class="signal-level" data-level="0">Calm</button>
-              <button class="signal-level selected" data-level="1">Busy</button>
-              <button class="signal-level" data-level="2">Racing</button>
+          <!-- Progress bar -->
+          <div class="training-progress">
+            <div class="training-progress-bar">
+              <div class="training-progress-fill" id="training-progress-fill"></div>
             </div>
+            <span class="training-progress-label" id="training-progress-label"></span>
           </div>
-          <div class="signal-row" data-signal="body">
-            <div class="signal-row-label"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" style="width:18px;height:18px;vertical-align:middle;margin-right:4px"><line x1="8" y1="5" x2="8" y2="19"/><line x1="16" y1="5" x2="16" y2="19"/></svg> Body Tension</div>
-            <div class="signal-levels">
-              <button class="signal-level" data-level="0">Loose</button>
-              <button class="signal-level selected" data-level="1">Tight</button>
-              <button class="signal-level" data-level="2">Locked</button>
+
+          <!-- Today's session info -->
+          <h2 class="training-title" id="training-title"></h2>
+          <p class="training-desc" id="training-desc"></p>
+
+          <!-- Session preview tags -->
+          <div class="training-preview" id="training-preview"></div>
+
+          <!-- CTA -->
+          <button class="btn-primary training-cta" id="training-cta" onclick="app.startTodaysTraining()">Start Today's Training</button>
+
+          <!-- Completed state -->
+          <div class="training-done" id="training-done" style="display:none">
+            <svg class="check-icon" viewBox="0 0 24 24" width="24" height="24"><path d="M20 6L9 17l-5-5" stroke="currentColor" stroke-width="2" fill="none"/></svg>
+            <span>Done for today</span>
+          </div>
+
+          <!-- Level complete state -->
+          <div class="training-level-complete" id="training-level-complete" style="display:none">
+            <div class="level-complete-celebration">
+              <svg class="completion-check" viewBox="0 0 64 64" width="48" height="48"><circle cx="32" cy="32" r="30" stroke="var(--success)" stroke-width="2" fill="none"/><path d="M20 32l8 8 16-16" stroke="var(--success)" stroke-width="3" fill="none"/></svg>
+              <h3 class="level-complete-title">Level Complete</h3>
+              <p class="level-complete-message">You finished the 28-day program. Your skills are real.</p>
             </div>
+            <button class="btn-primary" onclick="app.resetChallenge()">Start Next Level</button>
+            <button class="btn-ghost" onclick="app.dismissLevelComplete()">Take a Break</button>
           </div>
-          <div class="signal-row" data-signal="breath">
-            <div class="signal-row-label"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" style="width:18px;height:18px;vertical-align:middle;margin-right:4px"><path d="M2 12c2-4 4-4 6 0s4 4 6 0 4-4 6 0"/></svg> Breathing</div>
-            <div class="signal-levels">
-              <button class="signal-level" data-level="0">Deep</button>
-              <button class="signal-level selected" data-level="1">Shallow</button>
-              <button class="signal-level" data-level="2">Stuck</button>
+        </div>
+
+        <!-- PREPARE SECTION (compact row) -->
+        <div class="prepare-row" onclick="app.startPrepare()">
+          <div class="prepare-row-content">
+            <span class="prepare-row-label">Something coming up?</span>
+            <span class="prepare-row-desc">60-sec protocol</span>
+          </div>
+          <svg viewBox="0 0 24 24" width="20" height="20"><polyline points="9 18 15 12 9 6" stroke="var(--accent)" stroke-width="2" fill="none"/></svg>
+        </div>
+
+        <!-- RELIEF SECTION (compact, always accessible) -->
+        <div class="relief-section relief-section--compact">
+          <p class="section-label">Reset tools</p>
+          <div class="signal-grid signal-grid--compact" id="signal-grid">
+            <button class="signal-card signal-card--mini signal-card--mind" onclick="app.tapSignal('mind')">
+              <svg viewBox="0 0 28 28" width="20" height="20"><circle cx="14" cy="14" r="10" stroke="currentColor" stroke-width="1.5" fill="none"/><circle cx="14" cy="14" r="6" stroke="currentColor" stroke-width="1.5" fill="none"/><circle cx="14" cy="14" r="2" fill="currentColor"/></svg>
+              <span>Racing Mind</span>
+            </button>
+            <button class="signal-card signal-card--mini signal-card--body" onclick="app.tapSignal('body')">
+              <svg viewBox="0 0 28 28" width="20" height="20"><line x1="8" y1="8" x2="20" y2="8" stroke="currentColor" stroke-width="2"/><line x1="8" y1="14" x2="20" y2="14" stroke="currentColor" stroke-width="2"/><line x1="8" y1="20" x2="20" y2="20" stroke="currentColor" stroke-width="2"/></svg>
+              <span>Tight Body</span>
+            </button>
+            <button class="signal-card signal-card--mini signal-card--breath" onclick="app.tapSignal('breath')">
+              <svg viewBox="0 0 28 28" width="20" height="20"><path d="M2 14 Q7 6 14 14 Q21 22 26 14" stroke="currentColor" stroke-width="1.5" fill="none"/></svg>
+              <span>Shallow Breath</span>
+            </button>
+            <button class="signal-card signal-card--mini signal-card--pressure" onclick="app.tapSignal('pressure')">
+              <svg viewBox="0 0 28 28" width="20" height="20"><polyline points="8,16 14,10 20,16" stroke="currentColor" stroke-width="2" fill="none"/><polyline points="8,22 14,16 20,22" stroke="currentColor" stroke-width="2" fill="none"/></svg>
+              <span>Pressure</span>
+            </button>
+          </div>
+
+          <!-- Relief recommendation (shown after signal tap) -->
+          <div class="relief-recommendation" id="relief-rec" style="display:none">
+            <p class="rec-label">Recommended for you:</p>
+            <div class="rec-exercise" id="rec-exercise">
+              <h4 id="rec-title"></h4>
+              <p id="rec-duration"></p>
             </div>
+            <button class="btn-primary" id="rec-start-btn" onclick="app.startRecommended()">Start</button>
           </div>
-          <div class="signal-row" data-signal="pressure">
-            <div class="signal-row-label"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="width:18px;height:18px;vertical-align:middle;margin-right:4px"><polyline points="7,15 12,10 17,15"/><polyline points="7,19 12,14 17,19"/></svg> Internal Pressure</div>
-            <div class="signal-levels">
-              <button class="signal-level" data-level="0">Settled</button>
-              <button class="signal-level selected" data-level="1">Uneasy</button>
-              <button class="signal-level" data-level="2">Intense</button>
+
+          <button class="btn-ghost btn-emergency-compact" onclick="app.startEmergencyCalm()">Emergency Calm</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- LIBRARY VIEW -->
+    <div class="view" id="view-library">
+      <div class="view-content">
+        <header class="view-header">
+          <h1>Exercises</h1>
+        </header>
+        <div class="filter-pills" id="filter-pills">
+          <button class="filter-pill active" data-filter="all" onclick="app.filterExercises('all')">All</button>
+          <button class="filter-pill" data-filter="training" onclick="app.filterExercises('training')">Training</button>
+          <button class="filter-pill" data-filter="challenge" onclick="app.filterExercises('challenge')">Challenge</button>
+          <button class="filter-pill" data-filter="prepare" onclick="app.filterExercises('prepare')">Prepare</button>
+          <button class="filter-pill" data-filter="relief" onclick="app.filterExercises('relief')">Relief</button>
+          <button class="filter-pill" data-filter="saved" onclick="app.filterExercises('saved')">Saved</button>
+          <button class="filter-pill" data-filter="breathwork" onclick="app.filterExercises('breathwork')">Breathwork</button>
+          <button class="filter-pill" data-filter="body" onclick="app.filterExercises('body')">Body</button>
+          <button class="filter-pill" data-filter="mind" onclick="app.filterExercises('mind')">Mind</button>
+          <button class="filter-pill" data-filter="quick" onclick="app.filterExercises('quick')">Quick</button>
+        </div>
+        <div class="exercise-list" id="exercise-list"></div>
+      </div>
+    </div>
+
+    <!-- PLAYER VIEW -->
+    <div class="view" id="view-player">
+      <!-- Phase: Pre-check -->
+      <div class="player-phase" id="phase-precheck" style="display:none">
+        <div class="view-content">
+          <h2>Quick body check</h2>
+          <p class="phase-subtitle">How are you feeling right now?</p>
+          <div class="signal-check" id="signal-check-before">
+            <!-- 4 signal rows, each with 3 levels - generated by JS -->
+          </div>
+          <button class="btn-primary" onclick="app.proceedFromPreCheck()">Continue</button>
+        </div>
+      </div>
+
+      <!-- Phase: Intention -->
+      <div class="player-phase" id="phase-intention" style="display:none">
+        <div class="view-content">
+          <h2>What are you training for?</h2>
+          <p class="phase-subtitle">Connecting practice to real life makes it stick.</p>
+          <div class="chip-selector" id="intention-chips">
+            <!-- Generated by JS from intentionCategories -->
+          </div>
+          <button class="btn-primary" onclick="app.setIntention()">Continue</button>
+          <button class="btn-ghost" onclick="app.skipIntention()">Skip</button>
+        </div>
+      </div>
+
+      <!-- Phase: Active Exercise -->
+      <div class="player-phase" id="phase-active" style="display:none">
+        <div class="player-header">
+          <button class="btn-icon" onclick="app.exitPlayer()" aria-label="Close">
+            <svg viewBox="0 0 24 24" width="24" height="24"><line x1="18" y1="6" x2="6" y2="18" stroke="currentColor" stroke-width="2"/><line x1="6" y1="6" x2="18" y2="18" stroke="currentColor" stroke-width="2"/></svg>
+          </button>
+          <h3 class="player-title" id="player-title"></h3>
+          <span class="player-timer" id="player-timer">0:00</span>
+        </div>
+
+        <div class="player-body">
+          <div class="breathing-circle" id="breathing-circle">
+            <div class="breathing-circle-inner" id="breathing-inner"></div>
+          </div>
+          <p class="step-instruction" id="step-instruction"></p>
+          <span class="step-type-hint" id="step-type-hint"></span>
+        </div>
+
+        <div class="player-footer">
+          <div class="step-progress">
+            <div class="step-dots" id="step-dots"></div>
+            <div class="progress-bar"><div class="progress-bar-fill" id="progress-fill"></div></div>
+            <span class="step-count" id="step-count"></span>
+          </div>
+          <div class="player-controls">
+            <button class="btn-icon" onclick="app.restartExercise()" aria-label="Restart">
+              <svg viewBox="0 0 24 24" width="24" height="24"><path d="M1 4v6h6M23 20v-6h-6" stroke="currentColor" stroke-width="2" fill="none"/><path d="M20.49 9A9 9 0 005.64 5.64L1 10m22 4l-4.64 4.36A9 9 0 003.51 15" stroke="currentColor" stroke-width="2" fill="none"/></svg>
+            </button>
+            <button class="btn-icon btn-icon--large" id="pause-btn" onclick="app.togglePause()" aria-label="Pause">
+              <svg viewBox="0 0 24 24" width="32" height="32" id="pause-icon"><rect x="6" y="4" width="4" height="16" rx="1" fill="currentColor"/><rect x="14" y="4" width="4" height="16" rx="1" fill="currentColor"/></svg>
+              <svg viewBox="0 0 24 24" width="32" height="32" id="play-icon" style="display:none"><polygon points="5,3 19,12 5,21" fill="currentColor"/></svg>
+            </button>
+            <button class="btn-icon" onclick="app.skipStep()" aria-label="Skip">
+              <svg viewBox="0 0 24 24" width="24" height="24"><polygon points="5,4 15,12 5,20" fill="currentColor"/><line x1="19" y1="5" x2="19" y2="19" stroke="currentColor" stroke-width="2"/></svg>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Phase: Post-check -->
+      <div class="player-phase" id="phase-postcheck" style="display:none">
+        <div class="view-content">
+          <div class="completion-header">
+            <svg class="completion-check" viewBox="0 0 64 64" width="64" height="64"><circle cx="32" cy="32" r="30" stroke="var(--success)" stroke-width="2" fill="none"/><path d="M20 32l8 8 16-16" stroke="var(--success)" stroke-width="3" fill="none"/></svg>
+            <h2>Done.</h2>
+          </div>
+          <div class="shift-summary" id="shift-summary">
+            <!-- Signal shifts shown here -->
+          </div>
+          <div class="signal-check" id="signal-check-after">
+            <!-- Post signals -->
+          </div>
+          <div class="post-actions">
+            <button class="btn-primary" onclick="app.saveAndClose()">Save & Close</button>
+            <button class="btn-ghost" onclick="app.skipSave()">Skip</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- JOURNAL VIEW -->
+    <div class="view" id="view-journal">
+      <div class="view-content">
+        <header class="view-header">
+          <h1>Unload</h1>
+        </header>
+        <div class="journal-tabs">
+          <button class="journal-tab active" data-tab="unload" onclick="app.switchJournalTab('unload')">Unload</button>
+          <button class="journal-tab" data-tab="reflect" onclick="app.switchJournalTab('reflect')">Reflect</button>
+        </div>
+
+        <!-- Unload Tab -->
+        <div class="journal-content" id="tab-unload">
+          <div class="journal-form">
+            <label class="form-label">What is stressing me right now?</label>
+            <textarea class="textarea" id="journal-stressor" rows="3" placeholder="Get it out of your head..."></textarea>
+
+            <label class="form-label">What is actually in my control?</label>
+            <textarea class="textarea" id="journal-control" rows="2" placeholder="Focus on what you can change..."></textarea>
+
+            <label class="form-label">One next step</label>
+            <textarea class="textarea" id="journal-nextstep" rows="2" placeholder="Something small and concrete..."></textarea>
+
+            <button class="btn-primary" onclick="app.saveJournal()">Save Entry</button>
+          </div>
+        </div>
+
+        <!-- Reflect Tab -->
+        <div class="journal-content" id="tab-reflect" style="display:none">
+          <div class="journal-form">
+            <label class="form-label">What situation did you face?</label>
+            <textarea class="textarea" id="reflect-situation" rows="3" placeholder="Describe the situation..."></textarea>
+
+            <label class="form-label">Did you use your tools?</label>
+            <div class="reflection-options" id="reflect-tools">
+              <button class="chip" data-value="didnt" onclick="app.selectReflectOption(this, 'reflect-tools')">Didn't think to</button>
+              <button class="chip" data-value="tried" onclick="app.selectReflectOption(this, 'reflect-tools')">Tried but struggled</button>
+              <button class="chip" data-value="yes" onclick="app.selectReflectOption(this, 'reflect-tools')">Yes, stayed steady</button>
             </div>
+
+            <label class="form-label">How regulated did you stay?</label>
+            <div class="regulation-levels" id="reflect-regulation">
+              <button class="chip" data-value="0" onclick="app.selectReflectOption(this, 'reflect-regulation')">Overwhelmed</button>
+              <button class="chip" data-value="1" onclick="app.selectReflectOption(this, 'reflect-regulation')">Managed</button>
+              <button class="chip" data-value="2" onclick="app.selectReflectOption(this, 'reflect-regulation')">Steady</button>
+            </div>
+
+            <label class="form-label">What would you do differently?</label>
+            <textarea class="textarea" id="reflect-wouldchange" rows="2" placeholder="For next time..."></textarea>
+
+            <button class="btn-primary" onclick="app.saveReflection()">Save Reflection</button>
           </div>
         </div>
-        <button class="btn btn-primary" id="player-start-btn">Begin</button>
-      </div>
 
-      <!-- Main exercise area -->
-      <div class="player-main" id="player-main" style="display:none;">
-        <!-- Breathing animation circle -->
-        <div class="breath-circle-wrap" id="breath-circle-wrap" style="display:none;">
-          <div class="breath-circle" id="breath-circle">
-            <span class="breath-label" id="breath-label">Breathe</span>
+        <!-- Past Entries -->
+        <div class="journal-past">
+          <h3 class="section-title">Past Entries</h3>
+          <div id="journal-entries-list"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- PROGRESS VIEW -->
+    <div class="view" id="view-history">
+      <div class="view-content">
+        <header class="view-header">
+          <h1>Progress</h1>
+        </header>
+
+        <div class="stats-grid">
+          <div class="stat-card">
+            <span class="stat-number" id="stat-streak">0</span>
+            <span class="stat-label">Practice Streak</span>
+          </div>
+          <div class="stat-card">
+            <span class="stat-number" id="stat-week">0</span>
+            <span class="stat-label">This Week</span>
+          </div>
+          <div class="stat-card">
+            <span class="stat-number" id="stat-month">0</span>
+            <span class="stat-label">Last 30 Days</span>
+          </div>
+          <div class="stat-card">
+            <span class="stat-number" id="stat-longest">0</span>
+            <span class="stat-label">Longest Streak</span>
           </div>
         </div>
 
-        <!-- Step instruction (V3: narration layer with animated transitions) -->
-        <div class="player-instruction" id="player-instruction">
-          <!-- Big text instruction — animated via narration-enter/exit classes -->
-        </div>
-
-        <!-- V3: Step type hint (shows "Take your time", countdown, etc.) -->
-        <div class="step-type-hint" id="step-type-hint" style="display:none;"></div>
-
-        <!-- Progress -->
-        <div class="player-progress">
-          <!-- V3: Step dot indicator -->
-          <div class="step-indicator" id="step-indicator"></div>
-          <div class="progress-bar">
-            <div class="progress-fill" id="progress-fill"></div>
+        <!-- Challenge Progress -->
+        <div class="card" id="challenge-progress-card" style="display:none">
+          <h3 class="card-title">Level 1 Challenge</h3>
+          <div class="challenge-progress" id="challenge-dots">
+            <!-- 28 dots generated by JS, grouped by phase -->
           </div>
-          <div class="progress-text" id="progress-text">Step 1 of 8</div>
+          <p class="challenge-phase-label" id="challenge-phase-label"></p>
         </div>
 
-        <!-- Journal inputs (shown only for journal exercise) -->
-        <div class="journal-inputs" id="journal-inputs" style="display:none;">
-          <textarea class="journal-textarea" id="journal-textarea" placeholder="Type here..." rows="3" aria-label="Journal entry"></textarea>
-          <button class="btn btn-primary" id="journal-next">Next</button>
+        <!-- Real-World Progress -->
+        <div class="card" id="intention-progress-card" style="display:none">
+          <h3 class="card-title">Real-World Training</h3>
+          <div class="intention-stats" id="intention-stats-list"></div>
         </div>
 
-        <!-- Controls -->
-        <div class="player-controls" id="player-controls">
-          <button class="btn btn-ghost" id="player-restart" aria-label="Restart exercise">Restart</button>
-          <button class="btn btn-primary btn-round" id="player-pause" aria-label="Pause exercise">Pause</button>
-          <button class="btn btn-ghost" id="player-skip" aria-label="Skip to next step">Skip →</button>
-        </div>
-      </div>
-
-      <!-- Post-exercise shift check (V4: only elevated signals) -->
-      <div class="player-post" id="player-post" style="display:none;">
-        <div class="completion-check"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:32px;height:32px"><polyline points="20 6 9 17 4 12"/></svg></div>
-        <h2>Done.</h2>
-        <div class="state-check" id="state-check-post">
-          <h3 class="state-check-title">How do you feel now?</h3>
-          <!-- Signal rows generated dynamically by JS — only elevated signals shown -->
-        </div>
-        <div class="shift-summary" id="shift-summary" style="display:none;">
-          <!-- Populated by JS after save -->
-        </div>
-        <button class="btn btn-primary" id="player-save">Save & Close</button>
-        <button class="btn btn-ghost" id="player-skip-save">Skip</button>
-      </div>
-    </section>
-
-    <!-- Journal View -->
-    <section id="view-journal" class="view">
-      <header class="view-header">
-        <h1>Unload</h1>
-      </header>
-
-      <div class="journal-form" id="journal-form">
-        <div class="journal-prompt">
-          <label for="journal-stressor">What is stressing me right now?</label>
-          <textarea id="journal-stressor" rows="3" placeholder="Get it out of your head..."></textarea>
-        </div>
-        <div class="journal-prompt">
-          <label for="journal-control">What is actually in my control?</label>
-          <textarea id="journal-control" rows="2" placeholder="What can I influence right now?"></textarea>
-        </div>
-        <div class="journal-prompt">
-          <label for="journal-nextstep">One next step:</label>
-          <textarea id="journal-nextstep" rows="2" placeholder="The smallest thing I can do..."></textarea>
-        </div>
-        <button class="btn btn-primary" id="journal-save">Save Entry</button>
-      </div>
-
-      <!-- Past entries -->
-      <div class="journal-history" id="journal-history">
-        <h2 class="section-title">Past Entries</h2>
-        <div id="journal-entries-list">
-          <!-- Populated by JS -->
-        </div>
-      </div>
-    </section>
-
-    <!-- History View -->
-    <section id="view-history" class="view">
-      <header class="view-header">
-        <h1>Progress</h1>
-      </header>
-
-      <!-- Stats summary -->
-      <div class="stats-grid" id="stats-grid">
-        <!-- Populated by JS: cards for streak, sessions, avg stress change -->
-      </div>
-
-      <!-- V5: Signal History Chart -->
-      <div id="signal-chart" class="signal-chart" style="display:none;">
-        <!-- Populated by JS: 14-day signal trend grid -->
-      </div>
-
-      <!-- Weekly activity chart -->
-      <div class="weekly-chart" id="weekly-chart">
-        <h3>Last 7 Days</h3>
-        <div class="chart-bars" id="chart-bars">
-          <!-- Populated by JS -->
-        </div>
-      </div>
-
-      <!-- Recent sessions list -->
-      <div class="history-section">
-        <h2 class="section-title">Recent Sessions</h2>
-        <div id="history-list">
-          <!-- Populated by JS -->
-        </div>
-      </div>
-
-      <!-- Most helpful -->
-      <div class="history-section">
-        <h2 class="section-title">Most Helpful</h2>
-        <div id="most-helpful-list">
-          <!-- Populated by JS -->
-        </div>
-      </div>
-
-      <!-- Share progress -->
-      <div class="share-section">
-        <button class="btn btn-secondary btn-share" id="btn-share-progress">
-          Share My Progress
-        </button>
-      </div>
-    </section>
-
-    <!-- Settings View -->
-    <section id="view-settings" class="view">
-      <header class="view-header">
-        <h1>Settings</h1>
-      </header>
-
-      <div class="settings-group">
-        <div class="setting-row">
-          <div>
-            <span class="setting-label">Sound</span>
-            <span class="setting-desc">Play gentle cues during exercises</span>
+        <!-- Signal History -->
+        <div class="card">
+          <h3 class="card-title">Signal Trends</h3>
+          <div class="chart-container">
+            <canvas id="signal-chart" width="320" height="200"></canvas>
           </div>
-          <label class="toggle" for="setting-sound">
-            <input type="checkbox" id="setting-sound" checked>
-            <span class="toggle-slider"></span>
-          </label>
         </div>
-        <div class="setting-row">
-          <div>
-            <span class="setting-label">Reduced Motion</span>
-            <span class="setting-desc">Minimize animations</span>
+
+        <!-- Weekly Activity -->
+        <div class="card">
+          <h3 class="card-title">This Week</h3>
+          <div class="chart-container">
+            <canvas id="weekly-chart" width="320" height="150"></canvas>
           </div>
-          <label class="toggle" for="setting-motion">
-            <input type="checkbox" id="setting-motion">
-            <span class="toggle-slider"></span>
-          </label>
+        </div>
+
+        <!-- Recent Sessions -->
+        <div class="recent-sessions">
+          <h3 class="section-title">Recent Sessions</h3>
+          <div class="session-list" id="session-list"></div>
+        </div>
+
+        <!-- Most Helpful -->
+        <div id="most-helpful" style="display:none">
+          <h3 class="section-title">Most Helpful</h3>
+          <div id="most-helpful-list"></div>
         </div>
       </div>
+    </div>
 
-      <div class="settings-group">
-        <h3 class="settings-group-title">Theme</h3>
-        <div class="theme-toggle-row" id="theme-toggle-row">
-          <button class="theme-option active" data-theme="dark">Dark</button>
-          <button class="theme-option" data-theme="light">Light</button>
-          <button class="theme-option" data-theme="auto">Auto</button>
-        </div>
-      </div>
+    <!-- SETTINGS VIEW -->
+    <div class="view" id="view-settings">
+      <div class="view-content">
+        <header class="view-header">
+          <h1>Settings</h1>
+        </header>
 
-      <div class="settings-group">
-        <h3 class="settings-group-title">Daily Reminder</h3>
-        <div class="setting-row">
-          <div>
-            <span class="setting-label">Reminder</span>
-            <span class="setting-desc">Get a gentle nudge to practice</span>
+        <div class="settings-group">
+          <div class="setting-row">
+            <div>
+              <span class="setting-label">Sound</span>
+              <span class="setting-desc">Play gentle cues during exercises</span>
+            </div>
+            <label class="toggle-switch">
+              <input type="checkbox" id="setting-sound" checked onchange="app.updateSetting('sound', this.checked)">
+              <span class="toggle-slider"></span>
+            </label>
           </div>
-          <label class="toggle" for="setting-reminder">
-            <input type="checkbox" id="setting-reminder">
-            <span class="toggle-slider"></span>
-          </label>
+
+          <div class="setting-row">
+            <div>
+              <span class="setting-label">Reduced Motion</span>
+              <span class="setting-desc">Minimize animations</span>
+            </div>
+            <label class="toggle-switch">
+              <input type="checkbox" id="setting-motion" onchange="app.updateSetting('reducedMotion', this.checked)">
+              <span class="toggle-slider"></span>
+            </label>
+          </div>
         </div>
-        <div class="setting-row" id="reminder-time-row" style="display:none;">
-          <div>
+
+        <div class="settings-group">
+          <div class="setting-label">Theme</div>
+          <div class="theme-selector">
+            <button class="theme-option active" data-theme="dark" onclick="app.setTheme('dark')">Dark</button>
+            <button class="theme-option" data-theme="light" onclick="app.setTheme('light')">Light</button>
+            <button class="theme-option" data-theme="auto" onclick="app.setTheme('auto')">Auto</button>
+          </div>
+        </div>
+
+        <div class="settings-group">
+          <div class="setting-row">
+            <div>
+              <span class="setting-label">Daily Reminder</span>
+              <span class="setting-desc">Get notified to practice</span>
+            </div>
+            <label class="toggle-switch">
+              <input type="checkbox" id="setting-reminder" onchange="app.updateSetting('reminderEnabled', this.checked)">
+              <span class="toggle-slider"></span>
+            </label>
+          </div>
+          <div class="setting-row" id="reminder-time-row" style="display:none">
             <span class="setting-label">Reminder Time</span>
+            <input type="time" id="setting-reminder-time" value="09:00" onchange="app.updateSetting('reminderTime', this.value)">
           </div>
-          <input type="time" id="setting-reminder-time" value="09:00" class="time-input" style="background:var(--bg-elevated);color:var(--text-primary);border:1px solid var(--border);border-radius:8px;padding:8px 12px;font-size:16px;">
         </div>
-      </div>
 
-      <div class="settings-group">
-        <h3 class="settings-group-title">Data</h3>
-        <button class="btn btn-secondary btn-full" id="btn-export">Export Data (JSON)</button>
-        <button class="btn btn-secondary btn-full" id="btn-import">Import Data (JSON)</button>
-        <input type="file" id="import-file" accept=".json" style="display:none">
-      </div>
+        <div class="settings-group">
+          <div class="setting-label">Data</div>
+          <div class="settings-buttons">
+            <button class="btn-secondary" onclick="app.exportData()">Export Data (JSON)</button>
+            <button class="btn-secondary" onclick="document.getElementById('import-input').click()">Import Data (JSON)</button>
+            <input type="file" id="import-input" accept=".json" style="display:none" onchange="app.importData(this)">
+          </div>
+        </div>
 
-      <div class="settings-group">
-        <h3 class="settings-group-title">Install</h3>
-        <p class="setting-desc">To install Steady on your home screen:</p>
-        <ol class="install-steps">
-          <li>Open this page in Chrome on your phone</li>
-          <li>Tap the menu (⋮) or Share button</li>
-          <li>Select "Add to Home Screen" or "Install App"</li>
-        </ol>
-        <button class="btn btn-primary btn-full" id="btn-install" style="display:none">Install Steady</button>
-      </div>
+        <div class="settings-group">
+          <div class="setting-label">Install</div>
+          <p class="setting-desc">To install Steady on your device:</p>
+          <ol class="install-steps">
+            <li>Open in Safari (iOS) or Chrome (Android)</li>
+            <li>Tap the share/menu button</li>
+            <li>Select "Add to Home Screen"</li>
+          </ol>
+          <button class="btn-primary" id="install-btn" style="display:none" onclick="app.installPWA()">Install Steady</button>
+        </div>
 
-      <div class="settings-group danger-zone">
-        <h3 class="settings-group-title">Danger Zone</h3>
-        <button class="btn btn-danger btn-full" id="btn-clear-data">Clear All Data</button>
-      </div>
+        <div class="settings-group danger-zone">
+          <div class="setting-label">Danger Zone</div>
+          <button class="btn-danger" onclick="app.confirmClearData()">Clear All Data</button>
+        </div>
 
-      <div class="app-info">
-        <p>Steady v6.0 — Train your resilience.</p>
-        <p class="text-muted">All data stays on your device.</p>
+        <p class="app-info">Steady v7.0 — Train your resilience. 28-day program.<br>All data stays on your device.</p>
+        <p class="app-disclaimer">Steady is a wellness tool for practicing self-regulation skills. It is not a medical device, therapy replacement, or diagnostic tool. If you are experiencing a mental health crisis, please contact a professional.</p>
       </div>
-    </section>
+    </div>
 
-    <!-- Bottom Navigation -->
-    <nav class="bottom-nav" id="bottom-nav">
-      <button class="nav-tab active" data-view="home" aria-label="Home">
-        <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12l8-8 8 8"/><path d="M6 10.5V19h4v-4h4v4h4V10.5"/></svg></span>
-        <span class="nav-label">Home</span>
+    <!-- BOTTOM TAB BAR -->
+    <nav class="tab-bar">
+      <button class="tab active" data-view="home" onclick="app.navigate('home')" aria-label="Home">
+        <svg viewBox="0 0 24 24" width="20" height="20"><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z" stroke="currentColor" stroke-width="1.5" fill="none"/></svg>
+        <span>Home</span>
       </button>
-      <button class="nav-tab" data-view="library" aria-label="Exercises">
-        <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><rect x="4" y="4" width="6" height="6" rx="1"/><rect x="14" y="4" width="6" height="6" rx="1"/><rect x="4" y="14" width="6" height="6" rx="1"/><rect x="14" y="14" width="6" height="6" rx="1"/></svg></span>
-        <span class="nav-label">Exercises</span>
+      <button class="tab" data-view="library" onclick="app.navigate('library')" aria-label="Exercises">
+        <svg viewBox="0 0 24 24" width="20" height="20"><rect x="3" y="3" width="7" height="7" rx="1" stroke="currentColor" stroke-width="1.5" fill="none"/><rect x="14" y="3" width="7" height="7" rx="1" stroke="currentColor" stroke-width="1.5" fill="none"/><rect x="3" y="14" width="7" height="7" rx="1" stroke="currentColor" stroke-width="1.5" fill="none"/><rect x="14" y="14" width="7" height="7" rx="1" stroke="currentColor" stroke-width="1.5" fill="none"/></svg>
+        <span>Exercises</span>
       </button>
-      <button class="nav-tab" data-view="journal" aria-label="Unload">
-        <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3l4 4-10 10H4v-4L14 3z"/><line x1="4" y1="21" x2="20" y2="21"/></svg></span>
-        <span class="nav-label">Unload</span>
+      <button class="tab" data-view="journal" onclick="app.navigate('journal')" aria-label="Unload">
+        <svg viewBox="0 0 24 24" width="20" height="20"><path d="M12 20h9M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4L16.5 3.5z" stroke="currentColor" stroke-width="1.5" fill="none"/></svg>
+        <span>Unload</span>
       </button>
-      <button class="nav-tab" data-view="history" aria-label="Progress">
-        <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="6" y1="20" x2="6" y2="14"/><line x1="12" y1="20" x2="12" y2="8"/><line x1="18" y1="20" x2="18" y2="4"/></svg></span>
-        <span class="nav-label">Progress</span>
+      <button class="tab" data-view="history" onclick="app.navigate('history')" aria-label="Progress">
+        <svg viewBox="0 0 24 24" width="20" height="20"><polyline points="22,12 18,12 15,21 9,3 6,12 2,12" stroke="currentColor" stroke-width="1.5" fill="none"/></svg>
+        <span>Progress</span>
       </button>
-      <button class="nav-tab" data-view="settings" aria-label="Settings">
-        <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><line x1="4" y1="8" x2="20" y2="8"/><line x1="4" y1="16" x2="20" y2="16"/><circle cx="9" cy="8" r="2.5" fill="var(--bg-primary)" stroke="currentColor"/><circle cx="15" cy="16" r="2.5" fill="var(--bg-primary)" stroke="currentColor"/></svg></span>
-        <span class="nav-label">Settings</span>
+      <button class="tab" data-view="settings" onclick="app.navigate('settings')" aria-label="Settings">
+        <svg viewBox="0 0 24 24" width="20" height="20"><circle cx="12" cy="12" r="3" stroke="currentColor" stroke-width="1.5" fill="none"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 01-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z" stroke="currentColor" stroke-width="1.5" fill="none"/></svg>
+        <span>Settings</span>
       </button>
     </nav>
+
+    <!-- Confirmation Modal -->
+    <div class="modal" id="confirm-modal" style="display:none">
+      <div class="modal-card">
+        <h3 id="modal-title"></h3>
+        <p id="modal-message"></p>
+        <div class="modal-actions">
+          <button class="btn-ghost" onclick="app.closeModal()">Cancel</button>
+          <button class="btn-danger" id="modal-confirm-btn">Confirm</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Toast -->
+    <div class="toast" id="toast" style="display:none">
+      <span id="toast-message"></span>
+    </div>
   </div>
 
-  <script type="module" src="./js/app.js"></script>
+  <script type="module" src="js/app.js"></script>
 </body>
 </html>
