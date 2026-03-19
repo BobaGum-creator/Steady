@@ -1,7 +1,7 @@
 // Steady App - Main Application Logic
 // ES Module for hash-based SPA routing, no framework, plain JavaScript
 
-import { exercises, challengeDayMap, intentionCategories, signalDefinitions, challengePhases, getCognitiveTierForDay, getDisruptionCountForDay } from './data.js';
+import { exercises, challengeDayMap, intentionCategories, signalDefinitions, challengePhases, getCognitiveTierForDay, getDisruptionCountForDay, getHoldBonusForLevel, getLevelMeta } from './data.js';
 import { ExercisePlayer, formatTime } from './player.js';
 import {
   getSessions, addSession, saveDailyPractice, getDailyPractice,
@@ -11,7 +11,7 @@ import {
   advanceChallengeDay, isChallengeUnlocked, resetChallenge, getIntentionStats,
   saveCheckIn, getDismissedInsights, dismissInsight, exportAllData, importAllData,
   clearAllData, getWeeklyActivity, getMonthlySessionCount, getMostUsedExercises,
-  getExerciseEffectiveness
+  getExerciseEffectiveness, shouldShowBackupReminder, dismissBackupReminder, markBackupDone
 } from './storage.js';
 import { getActiveInsights, getReliefRecommendation } from './insights.js';
 import { initDB, syncBackup } from './idb.js';
@@ -25,6 +25,8 @@ class SteadyApp {
     this.recommendedExercise = null;
     this.deferredInstallPrompt = null;
     this.playerMode = null;
+    this._chartCache = {}; // Reserved for chart render memoization
+    this._reminderInterval = null; // Daily reminder check interval
     this.init();
   }
 
@@ -120,6 +122,13 @@ class SteadyApp {
 
     // Render view content
     this.renderView(view);
+
+    // Focus management for accessibility
+    const viewEl = document.getElementById(`view-${view}`);
+    if (viewEl) {
+      const heading = viewEl.querySelector('h1, h2');
+      if (heading) heading.focus();
+    }
   }
 
   renderView(view) {
@@ -165,6 +174,9 @@ class SteadyApp {
 
     // Render the training hero block
     this.renderTrainingHero();
+
+    // Check if backup reminder should show
+    this.renderBackupBanner();
   }
 
   /**
@@ -244,7 +256,23 @@ class SteadyApp {
 
     if (exercise) {
       if (titleEl) titleEl.textContent = exercise.title;
-      if (descEl) descEl.textContent = exercise.subtitle;
+      // Personalize Day 1 description based on onboarding goals
+      const profile = getProfile();
+      if (program.currentDay === 1 && level === 1 && profile.goals && profile.goals.length > 0) {
+        const goalMap = {
+          'resilience': 'Building your stress resilience starts here.',
+          'calm': 'Learning to calm down faster starts here.',
+          'sleep': 'Better sleep starts with a calmer nervous system.'
+        };
+        const personalDesc = goalMap[profile.goals[0]];
+        if (personalDesc && descEl) {
+          descEl.textContent = personalDesc;
+        } else {
+          if (descEl) descEl.textContent = exercise.subtitle;
+        }
+      } else {
+        if (descEl) descEl.textContent = exercise.subtitle;
+      }
     }
 
     // Session preview tags (what's included)
@@ -461,12 +489,14 @@ class SteadyApp {
           def = signalDefinitions[sig];
         }
 
-        const name = def ? def.name : sig;
+        const name = def ? def.label : sig;
         const levels = def ? def.levels : ['Low', 'Medium', 'High'];
+        const iconMap = { mind: '◎', body: '∥', breath: '∿', pressure: '⌃' };
+        const icon = iconMap[sig] || '';
 
         return `
         <div class="signal-row" data-signal="${sig}">
-          <span class="signal-row-label">${name}</span>
+          <span class="signal-row-label">${icon} ${name}</span>
           <div class="signal-levels">
             ${levels
               .map(
@@ -487,6 +517,8 @@ class SteadyApp {
   }
 
   selectSignalLevel(containerId, signal, level) {
+    // Validate signal level is 0-2
+    level = Math.max(0, Math.min(2, parseInt(level) || 0));
     const container = document.getElementById(containerId);
     if (!container) return;
     const row = container.querySelector(`[data-signal="${signal}"]`);
@@ -494,6 +526,11 @@ class SteadyApp {
     row.querySelectorAll('.signal-level').forEach(btn => btn.classList.remove('signal-level--active'));
     const activeBtn = row.querySelector(`[data-level="${level}"]`);
     if (activeBtn) activeBtn.classList.add('signal-level--active');
+
+    // Live-update the debrief readout when rating post-exercise signals
+    if (containerId === 'signal-check-after' && this.player && this.player.phase === 'post-check') {
+      this.updateDebriefShift();
+    }
   }
 
   getSelectedSignals(containerId) {
@@ -573,33 +610,152 @@ class SteadyApp {
 
   renderPostCheck() {
     this.renderSignalCheck('signal-check-after', this.player.signalsBefore || {});
-    this.renderShiftSummary();
+    this.renderDebrief();
   }
 
-  renderShiftSummary() {
+  renderDebrief() {
     const before = this.player.signalsBefore || {};
-    const container = document.getElementById('shift-summary');
-    if (!container) return;
+    const exercise = this.player.currentExercise;
+    const elapsed = this.player.totalElapsed || (exercise ? exercise.duration : 0);
 
-    // Show only elevated signals
-    const elevated = Object.entries(before).filter(([k, v]) => v > 0);
-    if (elevated.length === 0) {
-      container.innerHTML = '<p>Starting from a good place. Nice.</p>';
-      return;
+    // --- Debrief title: contextual, not cheerful ---
+    const titleEl = document.getElementById('debrief-title');
+    if (titleEl) {
+      const elevated = Object.values(before).filter(v => v > 0).length;
+      if (elevated === 0) {
+        titleEl.textContent = 'Logged.';
+      } else if (elevated >= 3) {
+        titleEl.textContent = 'That was a heavy one.';
+      } else {
+        titleEl.textContent = 'Done.';
+      }
     }
 
-    container.innerHTML = elevated
-      .map(([sig, level]) => {
-        let def;
-        if (Array.isArray(signalDefinitions)) {
-          def = signalDefinitions.find(s => s.id === sig);
-        } else {
-          def = signalDefinitions[sig];
+    // --- Signal Shift Readout ---
+    const readout = document.getElementById('debrief-readout');
+    if (readout) {
+      const signals = ['mind', 'body', 'breath', 'pressure'];
+      const elevated = signals.filter(s => (before[s] || 0) > 0);
+
+      if (elevated.length === 0) {
+        readout.innerHTML = '<p class="debrief-baseline">Started from baseline. Good maintenance session.</p>';
+      } else {
+        readout.innerHTML = elevated.map(sig => {
+          const def = signalDefinitions[sig];
+          const label = def ? def.label : sig;
+          const levels = def ? def.levels : ['Low', 'Medium', 'High'];
+          const beforeLevel = before[sig] || 0;
+          const beforeLabel = levels[beforeLevel] || '—';
+          return `
+            <div class="debrief-shift-row">
+              <span class="debrief-shift-label">${label}</span>
+              <span class="debrief-shift-value">
+                <span class="debrief-shift-before">${beforeLabel}</span>
+                <span class="debrief-shift-arrow">→</span>
+                <span class="debrief-shift-after">?</span>
+              </span>
+            </div>
+          `;
+        }).join('');
+      }
+    }
+
+    // --- Session stats: duration, streak, challenge day ---
+    const statsEl = document.getElementById('debrief-stats');
+    if (statsEl) {
+      const mins = Math.floor(elapsed / 60);
+      const secs = elapsed % 60;
+      const durationStr = mins > 0 ? `${mins}m ${secs}s` : `${secs}s`;
+
+      const streak = getStreak();
+      // Streak will include today once saved, so show streak + 1 as preview
+      const streakPreview = streak + 1;
+
+      const program = getChallengeProgram();
+      const dayStr = program.unlocked ? `Day ${program.currentDay} of 28` : null;
+
+      let statsHTML = `<div class="debrief-stat"><span class="debrief-stat-value">${durationStr}</span><span class="debrief-stat-label">Duration</span></div>`;
+      statsHTML += `<div class="debrief-stat"><span class="debrief-stat-value">${streakPreview}d</span><span class="debrief-stat-label">Streak</span></div>`;
+      if (dayStr) {
+        statsHTML += `<div class="debrief-stat"><span class="debrief-stat-value">${program.currentDay}/28</span><span class="debrief-stat-label">Program</span></div>`;
+      }
+      statsEl.innerHTML = statsHTML;
+    }
+
+    // --- Next up: tomorrow's training preview ---
+    const nextEl = document.getElementById('debrief-next');
+    const nextTitleEl = document.getElementById('debrief-next-title');
+    if (nextEl && nextTitleEl && this.playerMode === 'challenge') {
+      const program = getChallengeProgram();
+      const nextDay = program.currentDay + 1;
+      const nextExerciseId = challengeDayMap[nextDay];
+      if (nextExerciseId && nextDay <= 28) {
+        const nextExercise = exercises.find(e => e.id === nextExerciseId);
+        if (nextExercise) {
+          nextTitleEl.textContent = nextExercise.title;
+          nextEl.style.display = '';
         }
-        const name = def ? def.name : sig;
-        return `<div class="shift-item"><span>${name}</span><span>Level ${level}</span></div>`;
-      })
-      .join('');
+      } else if (nextDay > 28) {
+        nextTitleEl.textContent = 'Final day. Level complete after this.';
+        nextEl.style.display = '';
+      }
+    }
+
+    // --- Share on milestone days (7, 14, 21, 28) ---
+    const shareEl = document.getElementById('debrief-share');
+    if (shareEl && this.playerMode === 'challenge') {
+      const program = getChallengeProgram();
+      const day = program.currentDay;
+      if (day === 7 || day === 14 || day === 21 || day === 28) {
+        shareEl.style.display = '';
+      }
+    }
+  }
+
+  /**
+   * Update the shift readout "after" values once user rates post-signals.
+   * Called from selectSignalLevel when containerId is 'signal-check-after'.
+   */
+  updateDebriefShift() {
+    const before = this.player.signalsBefore || {};
+    const after = this.getSelectedSignals('signal-check-after');
+    const signals = ['mind', 'body', 'breath', 'pressure'];
+
+    signals.forEach(sig => {
+      const beforeVal = before[sig] || 0;
+      if (beforeVal === 0) return; // wasn't elevated, not shown
+
+      const afterVal = after[sig];
+      if (afterVal === undefined) return;
+
+      const def = signalDefinitions[sig];
+      const levels = def ? def.levels : ['Low', 'Medium', 'High'];
+      const afterLabel = levels[afterVal] || '—';
+
+      // Find the matching row and update the "after" span
+      const rows = document.querySelectorAll('.debrief-shift-row');
+      rows.forEach(row => {
+        const label = row.querySelector('.debrief-shift-label');
+        if (label && label.textContent === (def ? def.label : sig)) {
+          const afterSpan = row.querySelector('.debrief-shift-after');
+          if (afterSpan) {
+            afterSpan.textContent = afterLabel;
+            // Color the shift
+            const diff = beforeVal - afterVal;
+            if (diff > 0) {
+              afterSpan.classList.add('debrief-shift--improved');
+              afterSpan.classList.remove('debrief-shift--same', 'debrief-shift--worse');
+            } else if (diff === 0) {
+              afterSpan.classList.add('debrief-shift--same');
+              afterSpan.classList.remove('debrief-shift--improved', 'debrief-shift--worse');
+            } else {
+              afterSpan.classList.add('debrief-shift--worse');
+              afterSpan.classList.remove('debrief-shift--improved', 'debrief-shift--same');
+            }
+          }
+        }
+      });
+    });
   }
 
   saveAndClose() {
@@ -620,14 +776,58 @@ class SteadyApp {
     }
 
     // Backup to IDB
-    syncBackup();
+    syncBackup({ sessions: getSessions() });
 
-    this.showToast('Session saved');
-    this.navigate('home');
+    // Check if user was carrying heavy stress — prompt to unload
+    const before = this.player.signalsBefore || {};
+    const maxSignal = Math.max(...Object.values(before).map(v => typeof v === 'number' ? v : 0));
+    if (maxSignal >= 2) {
+      this.navigate('home');
+      // Show a longer toast with journal nudge
+      this.showToast('Session logged');
+      setTimeout(() => this.showUnloadNudge(), 600);
+    } else {
+      this.showToast('Session logged');
+      this.navigate('home');
+    }
   }
 
   skipSave() {
     this.navigate('home');
+  }
+
+  showUnloadNudge() {
+    const toast = document.getElementById('toast');
+    const messageEl = document.getElementById('toast-message');
+    if (!toast || !messageEl) return;
+
+    messageEl.innerHTML = 'Carrying something? <u style="cursor:pointer" onclick="app.navigate(\'journal\'); app.showToast(\'\');">Unload it</u>';
+    toast.style.display = 'block';
+    toast.classList.add('show');
+
+    setTimeout(() => {
+      toast.classList.remove('show');
+      setTimeout(() => { toast.style.display = 'none'; }, 300);
+    }, 4000); // Show for 4 seconds (longer than normal toast)
+  }
+
+  shareMilestone() {
+    const program = getChallengeProgram();
+    const day = program.currentDay;
+    const level = program.level || 1;
+    const streak = getStreak();
+    const text = `Day ${day} of Steady — Level ${level}. ${streak} day streak. Training my nervous system to handle pressure better.`;
+
+    if (navigator.share) {
+      navigator.share({ title: 'Steady', text }).catch(() => {});
+    } else {
+      // Fallback: copy to clipboard
+      navigator.clipboard.writeText(text).then(() => {
+        this.showToast('Copied to clipboard');
+      }).catch(() => {
+        this.showToast('Could not share');
+      });
+    }
   }
 
   // ============================================
@@ -761,7 +961,7 @@ class SteadyApp {
 
     this.showToast('Entry saved');
     this.renderJournalEntries();
-    syncBackup();
+    syncBackup({ journal: getJournalEntries() });
   }
 
   saveReflection() {
@@ -795,7 +995,7 @@ class SteadyApp {
 
     this.showToast('Reflection saved');
     this.renderJournalEntries();
-    syncBackup();
+    syncBackup({ reflections: getReflections() });
   }
 
   selectReflectOption(el, groupId) {
@@ -1136,7 +1336,29 @@ class SteadyApp {
     a.download = 'steady-data.json';
     a.click();
     URL.revokeObjectURL(url);
+    markBackupDone();
     this.showToast('Data exported');
+  }
+
+  // ---- Backup Reminder System ----
+
+  renderBackupBanner() {
+    const banner = document.getElementById('backup-banner');
+    if (!banner) return;
+    banner.style.display = shouldShowBackupReminder() ? 'flex' : 'none';
+  }
+
+  exportAndMarkBackup() {
+    this.exportData();
+    markBackupDone();
+    const banner = document.getElementById('backup-banner');
+    if (banner) banner.style.display = 'none';
+  }
+
+  dismissBackup() {
+    dismissBackupReminder();
+    const banner = document.getElementById('backup-banner');
+    if (banner) banner.style.display = 'none';
   }
 
   importData(input) {
@@ -1145,6 +1367,12 @@ class SteadyApp {
     const reader = new FileReader();
     reader.onload = () => {
       try {
+        // Basic schema validation
+        const parsed = JSON.parse(reader.result);
+        if (typeof parsed !== 'object' || parsed === null) {
+          this.showToast('Invalid file format');
+          return;
+        }
         importAllData(reader.result);
         this.showToast('Data imported');
         this.renderCurrentView();
@@ -1226,7 +1454,8 @@ class SteadyApp {
   }
 
   // ============================================
-  // INSIGHTS
+  // INSIGHTS (dormant — requires #insights-container in index.html)
+  // TODO: Wire into home view when insights section is added to the UI
   // ============================================
 
   renderInsights() {
@@ -1247,7 +1476,7 @@ class SteadyApp {
           <h4>${this.escapeHtml(ins.title)}</h4>
           <p>${this.escapeHtml(ins.message)}</p>
         </div>
-        <button class="btn-icon insight-dismiss" onclick="app.dismissInsight('${ins.id}')" aria-label="Dismiss">
+        <button class="btn-icon insight-dismiss" onclick="app.dismissInsightCard('${ins.id}')" aria-label="Dismiss">
           <svg viewBox="0 0 24 24" width="16" height="16"><line x1="18" y1="6" x2="6" y2="18" stroke="currentColor" stroke-width="2"/><line x1="6" y1="6" x2="18" y2="18" stroke="currentColor" stroke-width="2"/></svg>
         </button>
       </div>
@@ -1256,13 +1485,14 @@ class SteadyApp {
       .join('');
   }
 
-  dismissInsight(id) {
+  dismissInsightCard(id) {
     dismissInsight(id);
     this.renderInsights();
   }
 
   // ============================================
-  // TOP EXERCISES
+  // TOP EXERCISES (dormant — requires #top-exercises, #top-exercises-list in index.html)
+  // TODO: Wire into home or progress view when top exercises section is added
   // ============================================
 
   renderTopExercises() {
@@ -1356,7 +1586,38 @@ class SteadyApp {
   setupReminder() {
     const settings = getSettings();
     if (!settings.reminderEnabled || !('Notification' in window)) return;
-    Notification.requestPermission();
+
+    // Request permission if not granted
+    if (Notification.permission === 'default') {
+      Notification.requestPermission();
+    }
+
+    // Clear any existing reminder interval
+    if (this._reminderInterval) {
+      clearInterval(this._reminderInterval);
+    }
+
+    // Check every 60 seconds if it's time to remind
+    this._reminderInterval = setInterval(() => {
+      if (Notification.permission !== 'granted') return;
+
+      const now = new Date();
+      const currentTime = `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`;
+      const reminderTime = settings.reminderTime || '09:00';
+
+      if (currentTime === reminderTime) {
+        // Check if already practiced today
+        const today = now.toISOString().split('T')[0];
+        const practice = getDailyPractice(today);
+        if (!practice || !practice.completed) {
+          new Notification('Steady', {
+            body: 'Your daily training is ready.',
+            icon: '/icons/icon-192.png',
+            tag: 'steady-reminder', // Prevents duplicate notifications
+          });
+        }
+      }
+    }, 60000); // Check every minute
   }
 
   escapeHtml(text) {

@@ -21,7 +21,7 @@ export const exercises = [
   },
   {
     id: 'resonant-breathing',
-    title: '3-Minute Reset',
+    title: 'Rhythm Reset',
     subtitle: 'Find your natural rhythm and let your body settle into calm.',
     category: 'breathwork',
     mode: 'both',
@@ -280,7 +280,7 @@ export const exercises = [
   },
   {
     id: 'challenge-countdown',
-    title: 'Countdown Calm',
+    title: 'Pressure Timer',
     subtitle: 'Keep your breathing slow while the clock runs out.',
     category: 'breathwork',
     mode: 'challenge',
@@ -297,8 +297,8 @@ export const exercises = [
   },
   {
     id: 'challenge-cognitive',
-    title: 'Breathe and Think',
-    subtitle: 'Maintain your breathing rhythm while doing a mental task.',
+    title: 'Split Focus',
+    subtitle: 'Harder mental tasks. Same steady breathing. Don\'t let the mind steal the breath.',
     category: 'mind',
     mode: 'challenge',
     duration: 75,
@@ -343,8 +343,8 @@ export const exercises = [
   },
   {
     id: 'challenge-disruption',
-    title: 'Stay With It',
-    subtitle: 'Recover your rhythm when something disrupts it.',
+    title: 'Recover',
+    subtitle: 'Something breaks your rhythm. Get it back.',
     category: 'mind',
     mode: 'challenge',
     duration: 90,
@@ -427,7 +427,7 @@ export const exercises = [
   // --- Foundation Phase Extensions ---
   {
     id: 'challenge-countdown-long',
-    title: 'Countdown Calm (Extended)',
+    title: 'Pressure Timer (Extended)',
     subtitle: 'Longer session. Same slow breathing. The timer means nothing.',
     category: 'breathwork',
     mode: 'challenge',
@@ -444,8 +444,8 @@ export const exercises = [
   },
   {
     id: 'challenge-cognitive-medium',
-    title: 'Breathe and Think (Level 2)',
-    subtitle: 'Harder mental tasks. Same steady breathing.',
+    title: 'Split Focus',
+    subtitle: 'Harder mental tasks. Same steady breathing. Don\'t let the mind steal the breath.',
     category: 'mind',
     mode: 'challenge',
     duration: 90,
@@ -468,8 +468,8 @@ export const exercises = [
   },
   {
     id: 'challenge-foundation-cap',
-    title: 'Foundation Test',
-    subtitle: 'Timer running, easy cognitive task. Can you keep your rhythm?',
+    title: 'Baseline Check',
+    subtitle: 'Timer running. Easy cognitive task. Prove your rhythm holds.',
     category: 'breathwork',
     mode: 'challenge',
     duration: 90,
@@ -515,8 +515,8 @@ export const exercises = [
   },
   {
     id: 'challenge-cognitive-hard',
-    title: 'Breathe and Think (Advanced)',
-    subtitle: 'Demanding mental tasks while maintaining breathing rhythm.',
+    title: 'Split Focus (Advanced)',
+    subtitle: 'Demanding cognitive load. Your breathing doesn\'t negotiate.',
     category: 'mind',
     mode: 'challenge',
     duration: 100,
@@ -617,8 +617,8 @@ export const exercises = [
   // --- Recovery Phase Extensions ---
   {
     id: 'challenge-disruption-double',
-    title: 'Stay With It (2 Resets)',
-    subtitle: 'Two disruptions. Recover each time.',
+    title: 'Recover x2',
+    subtitle: 'Two disruptions. Recover each time. Faster.',
     category: 'mind',
     mode: 'challenge',
     duration: 100,
@@ -677,7 +677,7 @@ export const exercises = [
   },
   {
     id: 'challenge-disruption-triple',
-    title: 'Stay With It (3 Resets)',
+    title: 'Recover x3',
     subtitle: 'Three disruptions. Closer together. Keep finding your breath.',
     category: 'mind',
     mode: 'challenge',
@@ -735,7 +735,7 @@ export const exercises = [
   // --- Transfer Phase Extensions ---
   {
     id: 'challenge-scenario-gentle',
-    title: 'Imagine and Breathe',
+    title: 'Visualize and Hold',
     subtitle: 'A mild stressor. Just breathe through it.',
     category: 'mind',
     mode: 'challenge',
@@ -756,8 +756,8 @@ export const exercises = [
   },
   {
     id: 'challenge-scenario-breathing',
-    title: 'Scenario + Protocol',
-    subtitle: 'Visualize stress while following a structured breathing pattern.',
+    title: 'Scenario Protocol',
+    subtitle: 'Visualize stress while running your breathing protocol.',
     category: 'mind',
     mode: 'challenge',
     duration: 110,
@@ -834,7 +834,7 @@ export const exercises = [
   },
   {
     id: 'challenge-completion',
-    title: 'Day 28: You Made It',
+    title: 'Capstone',
     subtitle: 'A short practice and a moment to look back at what you\'ve built.',
     category: 'mind',
     mode: 'challenge',
@@ -1170,7 +1170,13 @@ export function getRandomDisruption() {
  * @param {number} day - Challenge day (1-28)
  * @returns {string} Tier name
  */
-export function getCognitiveTierForDay(day) {
+export function getCognitiveTierForDay(day, level = 1) {
+  // Level 1: standard progression
+  // Level 2+: shift everything up — Foundation uses tier2, Pressure uses tier3, Recovery/Transfer uses tier3
+  if (level >= 2) {
+    if (day <= 7) return 'tier2';
+    return 'tier3';
+  }
   if (day <= 7) return 'tier1';
   if (day <= 14) return 'tier2';
   return 'tier3';
@@ -1179,15 +1185,46 @@ export function getCognitiveTierForDay(day) {
 /**
  * Get the number of disruption windows for a given challenge day
  * @param {number} day - Challenge day (1-28)
+ * @param {number} level - Challenge level (1+)
  * @returns {number} Number of disruptions (0 for phases 1-2)
  */
-export function getDisruptionCountForDay(day) {
-  if (day <= 14) return 0;   // Foundation + Pressure: no disruptions
-  if (day === 15 || day === 16) return 1;
-  if (day === 17 || day === 18) return 2;
-  if (day >= 19 && day <= 21) return 3;
-  if (day >= 22 && day <= 24) return 2;  // Transfer: moderate disruptions
-  if (day >= 25 && day <= 26) return 3;
-  if (day >= 27) return 3;
-  return 0;
+export function getDisruptionCountForDay(day, level = 1) {
+  const bonus = Math.min(level - 1, 2); // +0 at L1, +1 at L2, +2 at L3+
+  let base;
+  if (day <= 14) base = 0;
+  else if (day === 15 || day === 16) base = 1;
+  else if (day === 17 || day === 18) base = 2;
+  else if (day >= 19 && day <= 21) base = 3;
+  else if (day >= 22 && day <= 24) base = 2;
+  else if (day >= 25 && day <= 26) base = 3;
+  else if (day >= 27) base = 3;
+  else base = 0;
+  return base + bonus;
+}
+
+/**
+ * Get hold duration modifier for a given level.
+ * Level 2+ increases breath hold durations.
+ * @param {number} level - Challenge level (1+)
+ * @returns {number} Seconds to add to base hold durations
+ */
+export function getHoldBonusForLevel(level) {
+  if (level <= 1) return 0;
+  return Math.min((level - 1) * 3, 9); // +3s at L2, +6s at L3, +9s at L4 (cap)
+}
+
+/**
+ * Get level description shown in the training hero
+ * @param {number} level - Challenge level
+ * @returns {Object} { name, subtitle }
+ */
+export function getLevelMeta(level) {
+  const metas = [
+    null, // index 0 unused
+    { name: 'Foundation', subtitle: 'Learn the fundamentals' },
+    { name: 'Intermediate', subtitle: 'Harder tasks, longer holds, more disruptions' },
+    { name: 'Advanced', subtitle: 'Peak difficulty. You earned this.' },
+  ];
+  if (level >= metas.length) return { name: `Level ${level}`, subtitle: 'You keep showing up. Respect.' };
+  return metas[level];
 }

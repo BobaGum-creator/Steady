@@ -445,7 +445,7 @@ class ExercisePlayer {
 
     return {
       exerciseId: this.currentExercise.id,
-      exerciseName: this.currentExercise.name,
+      exerciseName: this.currentExercise.title,
       mode: this.currentExercise.mode,
       date: new Date().toISOString().split('T')[0],
       duration: this.currentExercise.duration,

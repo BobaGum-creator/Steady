@@ -549,6 +549,54 @@ export function getMostUsedExercises(limit = 5) {
  * @param {string} exerciseId - Exercise ID
  * @returns {number|null} Average signal reduction or null
  */
+// ============================================================================
+// BACKUP TRACKING
+// ============================================================================
+
+/**
+ * Get the number of sessions since last backup export
+ * @returns {number} Sessions since last export
+ */
+export function getSessionsSinceBackup() {
+  const lastBackup = safeParse(localStorage.getItem(getKey('last_backup')), null);
+  if (!lastBackup) {
+    // Never backed up — return total session count
+    return getSessions().length;
+  }
+  const sessions = getSessions();
+  return sessions.filter(s => {
+    const ts = s.timestamp ? new Date(s.timestamp).getTime() : 0;
+    return ts > lastBackup;
+  }).length;
+}
+
+/**
+ * Mark that a backup was just performed
+ */
+export function markBackupDone() {
+  localStorage.setItem(getKey('last_backup'), safeStringify(Date.now()));
+}
+
+/**
+ * Check if backup reminder should be shown (every 7 sessions without backup)
+ * @returns {boolean}
+ */
+export function shouldShowBackupReminder() {
+  const sinceBackup = getSessionsSinceBackup();
+  // Also check if dismissed recently (within last 24h)
+  const dismissed = safeParse(localStorage.getItem(getKey('backup_dismissed')), 0);
+  const oneDayAgo = Date.now() - (24 * 60 * 60 * 1000);
+  if (dismissed > oneDayAgo) return false;
+  return sinceBackup >= 7;
+}
+
+/**
+ * Dismiss backup reminder for 24h
+ */
+export function dismissBackupReminder() {
+  localStorage.setItem(getKey('backup_dismissed'), safeStringify(Date.now()));
+}
+
 export function getExerciseEffectiveness(exerciseId) {
   const sessions = getSessions();
   const ninetyDaysAgo = new Date();

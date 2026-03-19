@@ -180,11 +180,11 @@ function getActiveInsights(maxCount = 2) {
   }
 
   try {
-    const dismissed = getDismissedInsights();
+    let dismissed = getDismissedInsights();
     const now = Date.now();
     const COOLDOWN = 7 * 24 * 60 * 60 * 1000; // 7 days in milliseconds
 
-    if (typeof dismissed !== 'object') {
+    if (typeof dismissed !== 'object' || dismissed === null) {
       dismissed = {};
     }
 
@@ -195,7 +195,9 @@ function getActiveInsights(maxCount = 2) {
       // Check if insight is in cooldown period
       if (dismissed[insight.id]) {
         const dismissedTime = dismissed[insight.id];
-        if (typeof dismissedTime === 'number' && (now - dismissedTime) < COOLDOWN) {
+        // Handle both ISO string timestamps and numeric timestamps
+        const dismissedMs = typeof dismissedTime === 'number' ? dismissedTime : new Date(dismissedTime).getTime();
+        if (!isNaN(dismissedMs) && (now - dismissedMs) < COOLDOWN) {
           return false;
         }
       }
