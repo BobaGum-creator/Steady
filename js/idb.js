@@ -75,8 +75,8 @@ export async function backupSessions(sessions) {
     });
 
     return new Promise((resolve, reject) => {
-      tx.onsuccess = resolve;
-      tx.onerror = reject;
+      tx.oncomplete = resolve;
+      tx.onerror = () => reject(tx.error);
     });
   } catch (e) {
     console.error('Failed to backup sessions:', e);
@@ -111,8 +111,8 @@ export async function backupJournal(entries) {
     });
 
     return new Promise((resolve, reject) => {
-      tx.onsuccess = resolve;
-      tx.onerror = reject;
+      tx.oncomplete = resolve;
+      tx.onerror = () => reject(tx.error);
     });
   } catch (e) {
     console.error('Failed to backup journal:', e);
@@ -147,8 +147,8 @@ export async function backupReflections(reflections) {
     });
 
     return new Promise((resolve, reject) => {
-      tx.onsuccess = resolve;
-      tx.onerror = reject;
+      tx.oncomplete = resolve;
+      tx.onerror = () => reject(tx.error);
     });
   } catch (e) {
     console.error('Failed to backup reflections:', e);
@@ -183,8 +183,8 @@ export async function backupCheckIns(checkins) {
     });
 
     return new Promise((resolve, reject) => {
-      tx.onsuccess = resolve;
-      tx.onerror = reject;
+      tx.oncomplete = resolve;
+      tx.onerror = () => reject(tx.error);
     });
   } catch (e) {
     console.error('Failed to backup check-ins:', e);

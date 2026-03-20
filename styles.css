@@ -56,7 +56,7 @@ html[data-theme="light"] {
   --border: #d1cdc6;
   --text-primary: #2a2825;
   --text-secondary: #6b6660;
-  --text-muted: #9b9690;
+  --text-muted: #8a8279;
   --accent: #4a6e4e;
   --accent-hover: #3d5d41;
   --accent-soft: rgba(74, 110, 78, 0.10);
@@ -271,7 +271,7 @@ a:active {
   overflow-y: auto;
   overflow-x: hidden;
   padding: 1rem;
-  padding-bottom: 80px; /* Account for tab bar */
+  padding-bottom: calc(96px + env(safe-area-inset-bottom, 0px)); /* Account for tab bar + safe area + browser chrome */
   scroll-behavior: smooth;
   -webkit-overflow-scrolling: touch;
 }
@@ -391,7 +391,8 @@ a:active {
   align-items: center;
   justify-content: center;
   gap: 4px;
-  padding: 8px;
+  padding: 12px 8px;
+  min-height: 44px;
   color: var(--text-secondary);
   cursor: pointer;
   transition: all 0.25s ease;
@@ -449,7 +450,7 @@ a:active {
   background-color: var(--bg-card);
   border: 1px solid var(--border);
   border-radius: 12px;
-  padding: 20px;
+  padding: 16px;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
   transition: all 0.25s ease;
   position: relative;
@@ -638,7 +639,7 @@ a:active {
   transition: all 0.2s ease;
   user-select: none;
   touch-action: manipulation;
-  padding: 14px 24px;
+  padding: 16px 24px;
   min-height: 48px;
   letter-spacing: 0.2px;
   width: 100%;
@@ -671,7 +672,7 @@ a:active {
   transition: all 0.2s ease;
   user-select: none;
   touch-action: manipulation;
-  padding: 14px 24px;
+  padding: 16px 24px;
   min-height: 48px;
   letter-spacing: 0.2px;
   width: 100%;
@@ -704,7 +705,7 @@ a:active {
   transition: all 0.2s ease;
   user-select: none;
   touch-action: manipulation;
-  padding: 14px 24px;
+  padding: 16px 24px;
   min-height: 48px;
   letter-spacing: 0.2px;
   width: 100%;
@@ -736,7 +737,7 @@ a:active {
   transition: all 0.2s ease;
   user-select: none;
   touch-action: manipulation;
-  padding: 14px 24px;
+  padding: 16px 24px;
   min-height: 48px;
   letter-spacing: 0.2px;
   width: 100%;
@@ -758,7 +759,7 @@ a:active {
 .btn-emergency {
   width: 100%;
   margin-top: 12px;
-  padding: 14px 24px;
+  padding: 16px 24px;
   font-size: 1rem;
 }
 
@@ -918,8 +919,20 @@ a:active {
   background-color: rgba(143, 181, 145, 0.06);
 }
 
-/* Active signal level */
-.signal-level--active {
+/* Focus outline for keyboard navigation */
+.signal-level:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.signal-level:focus:not(:focus-visible) {
+  outline: none;
+}
+
+/* Active signal level — must override :hover so use higher specificity */
+.signal-level.signal-level--active,
+.signal-level.signal-level--active:hover,
+.signal-level.signal-level--active:focus {
   background-color: var(--accent);
   border-color: var(--accent);
   color: white;
@@ -1130,7 +1143,7 @@ a:active {
 
 /* Individual filter pill */
 .filter-pill {
-  padding: 8px 16px;
+  padding: 10px 16px;
   border-radius: 20px;
   border: 1.5px solid var(--border);
   background-color: transparent;
@@ -1142,6 +1155,9 @@ a:active {
   flex-shrink: 0;
   transition: all 0.2s ease;
   letter-spacing: 0.2px;
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
 }
 
 .filter-pill:hover {
@@ -1172,6 +1188,63 @@ a:active {
   background-color: var(--bg-primary);
   position: relative;
   padding: 20px;
+}
+
+/* Player phase containers — fullscreen flex with header/body/footer zones */
+.player-phase {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+  position: relative;
+}
+
+/* Player body — centered area for breathing circle + instruction */
+.player-body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 80px 20px 180px; /* header clearance top, controls clearance bottom */
+  gap: 0;
+}
+
+/* Player footer — anchored to bottom above controls */
+.player-footer {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+}
+
+/* Countdown inside breathing circle */
+.breathing-countdown {
+  font-size: 2rem;
+  font-weight: 700;
+  color: rgba(255, 255, 255, 0.85);
+  font-variant-numeric: tabular-nums;
+  z-index: 1;
+}
+
+[data-theme="light"] .breathing-countdown {
+  color: rgba(0, 0, 0, 0.6);
+}
+
+/* Step transition cue — shows what's coming next */
+.step-next-cue {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-top: 8px;
+  min-height: 18px;
+  opacity: 0;
+  transition: opacity 0.3s ease;
+}
+
+.step-next-cue--visible {
+  opacity: 1;
 }
 
 /* Player header - back, title, timer */
@@ -1245,7 +1318,8 @@ a:active {
   justify-content: center;
   margin-bottom: 40px;
   position: relative;
-  transition: all 0.05s linear;
+  will-change: transform;
+  transition: transform 0.05s linear;
 }
 
 .breathing-circle::before {
@@ -1304,16 +1378,34 @@ a:active {
   }
 }
 
-/* Hold - static with pulse */
+/* Hold - maintains scale from previous breath state */
 .breathing-circle--hold {
   animation: none;
   background: radial-gradient(circle, rgba(143, 181, 145, 0.4) 0%, rgba(143, 181, 145, 0.15) 100%);
   box-shadow: inset 0 0 20px rgba(143, 181, 145, 0.1);
 }
 
+/* Hold after inhale: stay expanded */
+.breathing-circle--hold-expanded {
+  transform: scale(1.5);
+}
+
+/* Hold after exhale: stay contracted */
+.breathing-circle--hold-contracted {
+  transform: scale(1);
+}
+
 @media (prefers-reduced-motion: no-preference) {
   .breathing-circle--hold {
     animation: holdPulse 2s ease-in-out infinite;
+  }
+
+  .breathing-circle--hold.breathing-circle--hold-expanded {
+    animation: holdPulseExpanded 2s ease-in-out infinite;
+  }
+
+  .breathing-circle--hold.breathing-circle--hold-contracted {
+    animation: holdPulseContracted 2s ease-in-out infinite;
   }
 
   @keyframes holdPulse {
@@ -1324,13 +1416,42 @@ a:active {
       box-shadow: inset 0 0 20px rgba(143, 181, 145, 0.15), 0 0 0 12px rgba(143, 181, 145, 0);
     }
   }
+
+  @keyframes holdPulseExpanded {
+    0%, 100% {
+      transform: scale(1.5);
+      box-shadow: inset 0 0 20px rgba(143, 181, 145, 0.1), 0 0 0 0 rgba(143, 181, 145, 0.3);
+    }
+    50% {
+      transform: scale(1.5);
+      box-shadow: inset 0 0 20px rgba(143, 181, 145, 0.15), 0 0 0 12px rgba(143, 181, 145, 0);
+    }
+  }
+
+  @keyframes holdPulseContracted {
+    0%, 100% {
+      transform: scale(1);
+      box-shadow: inset 0 0 20px rgba(143, 181, 145, 0.1), 0 0 0 0 rgba(143, 181, 145, 0.3);
+    }
+    50% {
+      transform: scale(1);
+      box-shadow: inset 0 0 20px rgba(143, 181, 145, 0.15), 0 0 0 12px rgba(143, 181, 145, 0);
+    }
+  }
 }
 
-/* Pressure hold - warning color, expanded */
+/* Pressure hold - warning color, maintains scale from previous breath */
 .breathing-circle--pressure-hold {
-  transform: scale(1.5);
   background: radial-gradient(circle, rgba(160, 128, 88, 0.3) 0%, rgba(160, 128, 88, 0.1) 100%);
   border-color: var(--warning);
+}
+
+.breathing-circle--pressure-hold.breathing-circle--hold-expanded {
+  transform: scale(1.5);
+}
+
+.breathing-circle--pressure-hold.breathing-circle--hold-contracted {
+  transform: scale(1);
 }
 
 .breathing-circle--pressure-hold::before,
@@ -1339,15 +1460,32 @@ a:active {
 }
 
 @media (prefers-reduced-motion: no-preference) {
-  .breathing-circle--pressure-hold {
-    animation: pressureGlow 1.5s ease-in-out infinite;
+  .breathing-circle--pressure-hold.breathing-circle--hold-expanded {
+    animation: pressureGlowExpanded 1.5s ease-in-out infinite;
   }
 
-  @keyframes pressureGlow {
+  .breathing-circle--pressure-hold.breathing-circle--hold-contracted {
+    animation: pressureGlowContracted 1.5s ease-in-out infinite;
+  }
+
+  @keyframes pressureGlowExpanded {
     0%, 100% {
+      transform: scale(1.5);
       box-shadow: 0 0 0 0 rgba(160, 128, 88, 0.4);
     }
     50% {
+      transform: scale(1.5);
+      box-shadow: 0 0 0 24px rgba(160, 128, 88, 0);
+    }
+  }
+
+  @keyframes pressureGlowContracted {
+    0%, 100% {
+      transform: scale(1);
+      box-shadow: 0 0 0 0 rgba(160, 128, 88, 0.4);
+    }
+    50% {
+      transform: scale(1);
       box-shadow: 0 0 0 24px rgba(160, 128, 88, 0);
     }
   }
@@ -1380,18 +1518,119 @@ a:active {
   }
 }
 
-/* Step type hint label */
-.step-type-hint {
-  font-size: 0.75rem;
-  font-weight: 600;
-  letter-spacing: 0.5px;
-  color: var(--text-muted);
+/* Briefing screen */
+.briefing-content {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 40px 24px;
+  gap: 16px;
+  min-height: 100%;
+}
+
+.briefing-mode {
+  font-size: 0.7rem;
+  font-weight: 700;
   text-transform: uppercase;
-  margin-bottom: 12px;
-  display: inline-block;
-  padding: 4px 12px;
-  background-color: var(--bg-secondary);
+  letter-spacing: 1px;
+  padding: 4px 10px;
   border-radius: 4px;
+  background-color: var(--bg-secondary);
+  color: var(--text-secondary);
+}
+
+.briefing-mode--challenge {
+  background-color: rgba(255, 152, 0, 0.15);
+  color: #ffb74d;
+}
+
+.briefing-mode--relief {
+  background-color: rgba(143, 181, 145, 0.15);
+  color: var(--accent);
+}
+
+.briefing-title {
+  font-size: 1.75rem;
+  font-weight: 700;
+  margin: 0;
+  color: var(--text-primary);
+}
+
+.briefing-subtitle {
+  font-size: 0.95rem;
+  color: var(--text-secondary);
+  margin: 0;
+  line-height: 1.4;
+}
+
+.briefing-body {
+  font-size: 1rem;
+  color: var(--text-primary);
+  margin: 8px 0;
+  line-height: 1.6;
+  max-width: 420px;
+}
+
+.briefing-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 8px 0 16px;
+  font-size: 0.85rem;
+  color: var(--text-muted);
+}
+
+.briefing-pattern {
+  font-family: 'SF Mono', 'Monaco', 'Consolas', monospace;
+  font-size: 0.8rem;
+  padding: 8px 12px;
+  background-color: var(--bg-secondary);
+  border-radius: 6px;
+  color: var(--text-secondary);
+  letter-spacing: 0.3px;
+}
+
+.briefing-duration-label {
+  color: var(--text-muted);
+}
+
+.briefing-duration-label strong {
+  color: var(--text-secondary);
+}
+
+/* Pre-exercise countdown transition */
+#phase-countdown {
+  align-items: center;
+  justify-content: center;
+  background-color: var(--bg-primary);
+}
+
+.countdown-word {
+  font-size: 2rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  opacity: 0;
+  transform: scale(0.9);
+  transition: opacity 0.2s ease, transform 0.2s ease;
+}
+
+.countdown-word--visible {
+  opacity: 1;
+  transform: scale(1);
+}
+
+/* Pattern reference bar (persistent in active phase) */
+.pattern-reference {
+  font-family: 'SF Mono', 'Monaco', 'Consolas', monospace;
+  font-size: 0.7rem;
+  text-align: center;
+  padding: 6px 16px;
+  color: var(--text-muted);
+  letter-spacing: 0.3px;
+  opacity: 0.7;
 }
 
 /* Step progress indicators */
@@ -2352,7 +2591,7 @@ a:active {
 }
 
 .chip {
-  padding: 10px 16px;
+  padding: 12px 16px;
   border-radius: 20px;
   border: 1.5px solid var(--border);
   background-color: transparent;
@@ -2362,6 +2601,9 @@ a:active {
   cursor: pointer;
   transition: all 0.2s ease;
   letter-spacing: 0.2px;
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
 }
 
 .chip:hover {
@@ -2512,6 +2754,12 @@ a:active {
   border-color: var(--accent);
 }
 
+.toggle-switch input:focus-visible + .toggle-switch-slider,
+.toggle-switch input:focus-visible + .toggle-slider {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
 /* Theme selector - 3-option row */
 .theme-selector {
   display: grid;
@@ -2528,7 +2776,7 @@ a:active {
   cursor: pointer;
   font-size: 0.85rem;
   font-weight: 500;
-  color: var(--text-secondary);
+  color: var(--text-muted);
   transition: all 0.2s ease;
   background-color: transparent;
   display: flex;
@@ -2542,13 +2790,28 @@ a:active {
 .theme-option:hover {
   border-color: var(--accent);
   background-color: rgba(143, 181, 145, 0.06);
+  color: var(--text-secondary);
 }
 
-.theme-option.selected {
-  background-color: var(--accent);
+/* Focus outline for keyboard navigation */
+.theme-option:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.theme-option:focus:not(:focus-visible) {
+  outline: none;
+}
+
+.theme-option.selected,
+.theme-option.active,
+.theme-option.active:hover,
+.theme-option.selected:hover {
   border-color: var(--accent);
-  color: white;
-  box-shadow: 0 4px 12px rgba(143, 181, 145, 0.25);
+  background-color: transparent;
+  color: var(--accent);
+  box-shadow: inset 0 0 0 1.5px var(--accent);
+  font-weight: 600;
 }
 
 .theme-option__icon {
@@ -2758,8 +3021,8 @@ a:active {
 }
 
 .modal__content {
-  background-color: var(--bg-card);
-  border: 1px solid var(--border);
+  background-color: #282d33;
+  border: 1px solid #3a4149;
   border-radius: 16px;
   padding: 24px;
   max-width: 360px;
@@ -2769,6 +3032,24 @@ a:active {
   gap: 16px;
   box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
   animation: modalSlideIn 0.3s ease-out;
+  color: #e2dfd9;
+}
+
+.modal__content h3 {
+  color: #e2dfd9;
+}
+
+.modal__content p {
+  color: #9b9690;
+}
+
+.modal__content .btn-ghost {
+  color: #8fb591;
+}
+
+.modal__content .btn-ghost:hover {
+  background-color: rgba(143, 181, 145, 0.08);
+  color: #a3c5a5;
 }
 
 @media (prefers-reduced-motion: no-preference) {
@@ -3277,7 +3558,7 @@ textarea:focus-visible {
   --border: #d1cdc6;
   --text-primary: #2a2825;
   --text-secondary: #6b6660;
-  --text-muted: #9b9690;
+  --text-muted: #8a8279;
   --accent: #4a6e4e;
   --accent-hover: #3d5d41;
   --accent-soft: rgba(74, 110, 78, 0.10);
@@ -3318,7 +3599,7 @@ textarea:focus-visible {
   margin-bottom: 8px;
 }
 
-.home-streak {
+.home-sessions-badge {
   display: flex;
   align-items: center;
   gap: 6px;
@@ -3329,6 +3610,54 @@ textarea:focus-visible {
   font-weight: 600;
   color: var(--accent);
   margin-top: 8px;
+}
+
+/* Signal Proof — mini evidence block on homepage */
+.signal-proof {
+  margin: 8px 0 4px;
+  padding: 16px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}
+
+.signal-proof-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.signal-proof-label {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-muted);
+  font-weight: 600;
+}
+
+.signal-proof-detail {
+  font-size: 0.75rem;
+  font-weight: 500;
+}
+
+#signal-proof-chart {
+  width: 100%;
+  height: 48px;
+  display: block;
+}
+
+canvas {
+  width: 100%;
+  max-width: 100%;
+  height: auto;
+  display: block;
+}
+
+/* Stat card primary variant — slightly emphasized */
+.stat-card--primary {
+  border-color: var(--accent-soft);
+  background: linear-gradient(135deg, var(--bg-card) 0%, rgba(74, 110, 78, 0.06) 100%);
 }
 
 /* Backup Reminder Banner */
@@ -3391,7 +3720,12 @@ textarea:focus-visible {
   opacity: 0.5;
   font-size: 1.2rem;
   cursor: pointer;
-  padding: 4px;
+  padding: 10px;
+  min-width: 44px;
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   line-height: 1;
 }
 
@@ -3609,7 +3943,7 @@ textarea:focus-visible {
   background-color: var(--bg-card);
   border: 1px solid var(--border);
   border-radius: 10px;
-  padding: 12px 8px;
+  padding: 14px 10px;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -3620,6 +3954,7 @@ textarea:focus-visible {
   text-align: center;
   min-height: 72px;
   border-left-width: 3px;
+  color: var(--text-secondary);
 }
 
 .signal-card--mini:active {
@@ -3631,26 +3966,88 @@ textarea:focus-visible {
 }
 
 .signal-card--mini span {
-  font-size: 0.65rem;
+  font-size: 0.6rem;
   font-weight: 600;
   color: var(--text-muted);
-  letter-spacing: 0.2px;
+  letter-spacing: 0.1px;
   line-height: 1.2;
+  white-space: nowrap;
 }
 
-/* Emergency calm compact */
+/* Emergency calm compact — subtle but findable */
 .btn-emergency-compact {
   width: 100%;
-  margin-top: 4px;
-  padding: 10px 24px;
-  font-size: 0.9rem;
-  color: var(--text-muted);
+  margin-top: 12px;
+  padding: 16px 24px;
+  font-size: 0.85rem;
+  font-weight: 500;
+  letter-spacing: 0.3px;
+  color: var(--text-secondary);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.03);
+  transition: all 0.2s ease;
 }
 
-.btn-emergency-compact:hover {
+.btn-emergency-compact:hover,
+.btn-emergency-compact:active {
   color: var(--accent);
+  border-color: var(--accent);
+  background: rgba(74, 110, 78, 0.08);
 }
 
 /* ============================================================================
-   21. END OF STYLESHEET
+   21. SMALL SCREEN & LANDSCAPE OVERRIDES
+   ============================================================================ */
+
+/* Small screens (320px-360px) */
+@media (max-width: 360px) {
+  .breathing-circle {
+    width: 130px;
+    height: 130px;
+    margin-bottom: 24px;
+  }
+
+  .view-content {
+    padding-left: 12px;
+    padding-right: 12px;
+  }
+
+  .signal-card--mini span {
+    font-size: 0.6rem;
+  }
+
+  .filter-pill {
+    padding: 8px 12px;
+    font-size: 0.8rem;
+    min-height: 40px;
+  }
+}
+
+/* Landscape orientation */
+@media (orientation: landscape) and (max-height: 500px) {
+  .breathing-circle {
+    width: 110px;
+    height: 110px;
+    margin-bottom: 16px;
+  }
+
+  .player-header {
+    padding-top: 8px;
+    padding-bottom: 4px;
+  }
+
+  .step-instruction {
+    font-size: 1rem;
+    margin-bottom: 8px;
+  }
+
+  .tab-bar {
+    height: 48px;
+    padding: 4px 0;
+  }
+}
+
+/* ============================================================================
+   22. END OF STYLESHEET
    ============================================================================ */

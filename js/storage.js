@@ -37,6 +37,39 @@ function safeStringify(obj, fallback = '{}') {
 }
 
 /**
+ * Safely write to localStorage with QuotaExceededError handling
+ * @param {string} key - Storage key
+ * @param {string} value - Value to store
+ * @returns {boolean} Whether the write succeeded
+ */
+function safeSetItem(key, value) {
+  try {
+    localStorage.setItem(key, value);
+    return true;
+  } catch (e) {
+    if (e.name === 'QuotaExceededError' || e.code === 22 || e.code === 1014) {
+      console.warn('localStorage quota exceeded, attempting cleanup...');
+      try {
+        // Remove oldest sessions to free space
+        const sessions = safeParse(localStorage.getItem(getKey('sessions')), []);
+        if (sessions.length > 50) {
+          const trimmed = sessions.slice(-50);
+          localStorage.setItem(getKey('sessions'), safeStringify(trimmed));
+          // Retry the original write
+          localStorage.setItem(key, value);
+          return true;
+        }
+      } catch (retryError) {
+        console.error('localStorage write failed even after cleanup:', retryError);
+      }
+    } else {
+      console.error('localStorage write error:', e);
+    }
+    return false;
+  }
+}
+
+/**
  * Get localStorage key with prefix
  * @param {string} key - Key name
  * @returns {string} Prefixed key
@@ -54,7 +87,7 @@ function getKey(key) {
  * @param {Array<Object>} sessions - Sessions array
  */
 export function saveSessions(sessions) {
-  localStorage.setItem(getKey('sessions'), safeStringify(sessions));
+  safeSetItem(getKey('sessions'), safeStringify(sessions));
 }
 
 /**
@@ -104,7 +137,7 @@ export function saveDailyPractice(dateStr, exerciseId) {
     exerciseId,
     timestamp: new Date().toISOString(),
   };
-  localStorage.setItem(getKey('daily_practice'), safeStringify(practices));
+  safeSetItem(getKey('daily_practice'), safeStringify(practices));
 }
 
 // ============================================================================
@@ -157,7 +190,7 @@ function updateLongestStreak(streak) {
   });
   if (streak > metadata.longest) {
     metadata.longest = streak;
-    localStorage.setItem(getKey('streak_metadata'), safeStringify(metadata));
+    safeSetItem(getKey('streak_metadata'), safeStringify(metadata));
   }
 }
 
@@ -176,7 +209,7 @@ export function saveJournalEntry(entry) {
     timestamp: entry.timestamp || new Date().toISOString(),
     id: `journal_${Date.now()}`,
   });
-  localStorage.setItem(getKey('journal'), safeStringify(entries));
+  safeSetItem(getKey('journal'), safeStringify(entries));
 }
 
 /**
@@ -202,7 +235,7 @@ export function saveReflection(reflection) {
     timestamp: reflection.timestamp || new Date().toISOString(),
     id: `reflection_${Date.now()}`,
   });
-  localStorage.setItem(getKey('reflections'), safeStringify(reflections));
+  safeSetItem(getKey('reflections'), safeStringify(reflections));
 }
 
 /**
@@ -237,7 +270,7 @@ export function getChallengeProgram() {
  * @param {Object} program - Challenge program object
  */
 export function saveChallengeProgram(program) {
-  localStorage.setItem(getKey('challenge'), safeStringify(program));
+  safeSetItem(getKey('challenge'), safeStringify(program));
 }
 
 /**
@@ -315,7 +348,7 @@ export function saveCheckIn(checkIn) {
     timestamp: checkIn.timestamp || new Date().toISOString(),
     id: `checkin_${Date.now()}`,
   });
-  localStorage.setItem(getKey('checkins'), safeStringify(checkIns));
+  safeSetItem(getKey('checkins'), safeStringify(checkIns));
 }
 
 /**
@@ -347,7 +380,7 @@ export function getProfile() {
  * @param {Object} profile - Profile object
  */
 export function saveProfile(profile) {
-  localStorage.setItem(getKey('profile'), safeStringify(profile));
+  safeSetItem(getKey('profile'), safeStringify(profile));
 }
 
 // ============================================================================
@@ -363,7 +396,7 @@ export function getSettings() {
     sound: true,
     reducedMotion: false,
     theme: 'dark',
-    reminderEnabled: false,
+    reminderEnabled: true,
     reminderTime: '09:00',
   });
 }
@@ -373,7 +406,7 @@ export function getSettings() {
  * @param {Object} settings - Settings object
  */
 export function saveSettings(settings) {
-  localStorage.setItem(getKey('settings'), safeStringify(settings));
+  safeSetItem(getKey('settings'), safeStringify(settings));
 }
 
 // ============================================================================
@@ -395,7 +428,7 @@ export function getDismissedInsights() {
 export function dismissInsight(insightId) {
   const dismissed = getDismissedInsights();
   dismissed[insightId] = new Date().toISOString();
-  localStorage.setItem(getKey('dismissed_insights'), safeStringify(dismissed));
+  safeSetItem(getKey('dismissed_insights'), safeStringify(dismissed));
 }
 
 // ============================================================================
@@ -422,7 +455,7 @@ export function toggleBookmark(exerciseId) {
   } else {
     bookmarks.push(exerciseId);
   }
-  localStorage.setItem(getKey('bookmarks'), safeStringify(bookmarks));
+  safeSetItem(getKey('bookmarks'), safeStringify(bookmarks));
 }
 
 // ============================================================================
@@ -456,7 +489,7 @@ export function importAllData(jsonStr) {
     // Import new data
     Object.entries(data).forEach(([key, value]) => {
       if (key.startsWith(PREFIX)) {
-        localStorage.setItem(key, value);
+        safeSetItem(key, value);
       }
     });
   } catch (e) {
@@ -487,25 +520,36 @@ export function clearAllData() {
  * @returns {Array<Object>} [{date, count}, ...]
  */
 export function getWeeklyActivity() {
-  const practices = safeParse(localStorage.getItem(getKey('daily_practice')), {});
   const sessions = getSessions();
-  const activity = {};
   const today = new Date();
 
-  for (let i = 0; i < 7; i++) {
+  // Build a Set of the 7 date strings we care about
+  const dateStrings = [];
+  const counts = {};
+  for (let i = 6; i >= 0; i--) {
     const date = new Date(today);
     date.setDate(date.getDate() - i);
     const dateStr = date.toISOString().split('T')[0];
-    activity[dateStr] = {
-      date: dateStr,
-      count: sessions.filter(
-        (s) =>
-          s.timestamp && s.timestamp.split('T')[0] === dateStr
-      ).length,
-    };
+    dateStrings.push(dateStr);
+    counts[dateStr] = 0;
   }
 
-  return Object.values(activity).reverse();
+  // Single pass over sessions to count per-day
+  sessions.forEach(s => {
+    let dateStr;
+    if (s.date) {
+      dateStr = s.date;
+    } else if (typeof s.timestamp === 'number') {
+      dateStr = new Date(s.timestamp).toISOString().split('T')[0];
+    } else if (typeof s.timestamp === 'string') {
+      dateStr = s.timestamp.split('T')[0];
+    }
+    if (dateStr && counts[dateStr] !== undefined) {
+      counts[dateStr]++;
+    }
+  });
+
+  return dateStrings.map(dateStr => ({ date: dateStr, count: counts[dateStr] }));
 }
 
 /**
@@ -514,12 +558,14 @@ export function getWeeklyActivity() {
  */
 export function getMonthlySessionCount() {
   const sessions = getSessions();
-  const thirtyDaysAgo = new Date();
-  thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+  const thirtyDaysAgo = Date.now() - (30 * 24 * 60 * 60 * 1000);
 
   return sessions.filter((session) => {
-    const sessionDate = new Date(session.timestamp);
-    return sessionDate >= thirtyDaysAgo;
+    if (!session.timestamp) return false;
+    const ts = typeof session.timestamp === 'number'
+      ? session.timestamp
+      : new Date(session.timestamp).getTime();
+    return !isNaN(ts) && ts >= thirtyDaysAgo;
   }).length;
 }
 
@@ -574,7 +620,7 @@ export function getSessionsSinceBackup() {
  * Mark that a backup was just performed
  */
 export function markBackupDone() {
-  localStorage.setItem(getKey('last_backup'), safeStringify(Date.now()));
+  safeSetItem(getKey('last_backup'), safeStringify(Date.now()));
 }
 
 /**
@@ -594,7 +640,7 @@ export function shouldShowBackupReminder() {
  * Dismiss backup reminder for 24h
  */
 export function dismissBackupReminder() {
-  localStorage.setItem(getKey('backup_dismissed'), safeStringify(Date.now()));
+  safeSetItem(getKey('backup_dismissed'), safeStringify(Date.now()));
 }
 
 export function getExerciseEffectiveness(exerciseId) {

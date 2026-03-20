@@ -14,7 +14,7 @@ import {
   getExerciseEffectiveness, shouldShowBackupReminder, dismissBackupReminder, markBackupDone
 } from './storage.js';
 import { getActiveInsights, getReliefRecommendation } from './insights.js';
-import { initDB, syncBackup } from './idb.js';
+import { initDB, syncBackup, restoreFromBackup } from './idb.js';
 
 class SteadyApp {
   constructor() {
@@ -31,47 +31,114 @@ class SteadyApp {
   }
 
   async init() {
-    // Initialize IDB backup
-    await initDB();
+    try {
+      // Initialize IDB backup (non-blocking — app works without it)
+      await initDB().catch(e => console.warn('IDB init failed, continuing without backup:', e));
 
-    // Load settings and apply theme
-    const settings = getSettings();
-    this.applyTheme(settings.theme);
-    this.applyReducedMotion(settings.reducedMotion);
+      // Auto-recover from IDB if localStorage appears empty
+      try {
+        const sessions = getSessions();
+        if (sessions.length === 0 && localStorage.getItem('steady_sessions') === null) {
+          const backup = await restoreFromBackup();
+          if (backup.sessions && backup.sessions.length > 0) {
+            localStorage.setItem('steady_sessions', JSON.stringify(backup.sessions));
+            if (backup.journal && backup.journal.length > 0) {
+              localStorage.setItem('steady_journal', JSON.stringify(backup.journal));
+            }
+            if (backup.reflections && backup.reflections.length > 0) {
+              localStorage.setItem('steady_reflections', JSON.stringify(backup.reflections));
+            }
+            if (backup.checkins && backup.checkins.length > 0) {
+              localStorage.setItem('steady_checkins', JSON.stringify(backup.checkins));
+            }
+            console.log('[Steady] Restored data from IndexedDB backup');
+          }
+        }
+      } catch (recoveryErr) {
+        console.warn('IDB auto-recovery failed:', recoveryErr);
+      }
 
-    // Check onboarding
-    const profile = getProfile();
-    if (!profile.completed) {
-      const onboardingEl = document.getElementById('onboarding');
-      if (onboardingEl) {
-        onboardingEl.style.display = 'flex';
+      // Load settings and apply theme
+      const settings = getSettings();
+      this.applyTheme(settings.theme);
+      this.applyReducedMotion(settings.reducedMotion);
+
+      // Check onboarding
+      const profile = getProfile();
+      if (!profile.completed) {
+        const onboardingEl = document.getElementById('onboarding');
+        if (onboardingEl) {
+          onboardingEl.style.display = 'flex';
+        }
+      }
+
+      // Setup routing
+      this.setupRouting();
+
+      // Setup player callbacks
+      this.setupPlayerCallbacks();
+
+      // Register service worker
+      this.registerSW();
+
+      // Listen for install prompt
+      window.addEventListener('beforeinstallprompt', (e) => {
+        e.preventDefault();
+        this.deferredInstallPrompt = e;
+        const installBtn = document.getElementById('install-btn');
+        if (installBtn) {
+          installBtn.style.display = 'block';
+        }
+      });
+
+      // Initial render
+      this.renderCurrentView();
+
+      // Setup reminder notification
+      this.setupReminder();
+
+      // Listen for SW update notifications
+      navigator.serviceWorker && navigator.serviceWorker.addEventListener('message', (e) => {
+        if (e.data && e.data.type === 'CACHE_UPDATED') {
+          this.showToast('App updated — refresh for latest version.');
+        }
+      });
+
+      // Clean up intervals on page unload to prevent leaks
+      window.addEventListener('beforeunload', () => {
+        this._clearCountdown();
+        if (this._reminderInterval) {
+          clearInterval(this._reminderInterval);
+          this._reminderInterval = null;
+        }
+      });
+
+      // Keyboard avoidance: scroll textareas into view on focus (mobile)
+      document.addEventListener('focusin', (e) => {
+        if (e.target.tagName === 'TEXTAREA' || e.target.tagName === 'INPUT') {
+          setTimeout(() => {
+            e.target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          }, 300);
+        }
+      });
+
+      // Online/offline detection
+      window.addEventListener('online', () => {
+        this.showToast('Back online');
+      });
+      window.addEventListener('offline', () => {
+        this.showToast('You\'re offline — data is saved locally');
+      });
+    } catch (e) {
+      console.error('Steady init error:', e);
+      // Attempt minimal recovery — at least show the home view
+      try {
+        this.setupRouting();
+        this.renderCurrentView();
+      } catch (fatal) {
+        console.error('Fatal init error:', fatal);
       }
     }
-
-    // Setup routing
-    this.setupRouting();
-
-    // Setup player callbacks
-    this.setupPlayerCallbacks();
-
-    // Register service worker
-    this.registerSW();
-
-    // Listen for install prompt
-    window.addEventListener('beforeinstallprompt', (e) => {
-      e.preventDefault();
-      this.deferredInstallPrompt = e;
-      const installBtn = document.getElementById('install-btn');
-      if (installBtn) {
-        installBtn.style.display = 'block';
-      }
-    });
-
-    // Initial render
-    this.renderCurrentView();
-
-    // Setup reminder notification
-    this.setupReminder();
   }
 
   // ============================================
@@ -79,7 +146,15 @@ class SteadyApp {
   // ============================================
 
   setupRouting() {
-    window.addEventListener('hashchange', () => this.handleRoute());
+    let routeTimer = null;
+    window.addEventListener('hashchange', () => {
+      // Debounce rapid hash changes (e.g., programmatic double-navigation)
+      if (routeTimer) cancelAnimationFrame(routeTimer);
+      routeTimer = requestAnimationFrame(() => {
+        routeTimer = null;
+        this.handleRoute();
+      });
+    });
     this.handleRoute();
   }
 
@@ -156,16 +231,21 @@ class SteadyApp {
   // ============================================
 
   renderHome() {
-    // Streak display (top-right)
-    const streak = getStreak();
-    const streakEl = document.getElementById('home-streak');
-    const streakCount = document.getElementById('home-streak-count');
-    if (streakEl && streakCount) {
-      if (streak > 0) {
-        streakEl.style.display = 'flex';
-        streakCount.textContent = `${streak} day${streak !== 1 ? 's' : ''}`;
+    // Total sessions badge (top-right) — effort that can't be lost
+    const sessions = getSessions();
+    const badgeEl = document.getElementById('home-sessions-badge');
+    const countEl = document.getElementById('home-sessions-count');
+    if (badgeEl && countEl) {
+      if (sessions.length > 0 || getStreak() > 0) {
+        badgeEl.style.display = 'flex';
+        const streak = getStreak();
+        if (streak > 0) {
+          countEl.textContent = `${streak} day streak`;
+        } else {
+          countEl.textContent = `${sessions.length} session${sessions.length !== 1 ? 's' : ''}`;
+        }
       } else {
-        streakEl.style.display = 'none';
+        badgeEl.style.display = 'none';
       }
     }
 
@@ -174,6 +254,9 @@ class SteadyApp {
 
     // Render the training hero block
     this.renderTrainingHero();
+
+    // Render mini signal proof (evidence it's working)
+    this.renderSignalProof();
 
     // Check if backup reminder should show
     this.renderBackupBanner();
@@ -304,6 +387,96 @@ class SteadyApp {
   }
 
   /**
+   * Render mini signal proof on homepage — shows average signal trend
+   * to give evidence that training is working. Only shown after 3+ sessions.
+   */
+  renderSignalProof() {
+    const proofEl = document.getElementById('signal-proof');
+    if (!proofEl) return;
+
+    const sessions = getSessions();
+    // Need 3+ sessions with signal data to show a meaningful trend
+    const withSignals = sessions.filter(s => s.signalsBefore && s.signalsAfter);
+    if (withSignals.length < 3) {
+      proofEl.style.display = 'none';
+      return;
+    }
+
+    proofEl.style.display = 'block';
+
+    // Calculate average total signal per session (before and after)
+    const recent = withSignals.slice(-10); // Last 10 sessions
+    const avgBefore = recent.map(s => {
+      const vals = Object.values(s.signalsBefore).filter(v => typeof v === 'number');
+      return vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : 0;
+    });
+    const avgAfter = recent.map(s => {
+      const vals = Object.values(s.signalsAfter).filter(v => typeof v === 'number');
+      return vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : 0;
+    });
+
+    // Summary text — compare first half vs second half average drop
+    const detailEl = document.getElementById('signal-proof-detail');
+    if (detailEl) {
+      const drops = recent.map((s, i) => avgBefore[i] - avgAfter[i]);
+      const avgDrop = drops.reduce((a, b) => a + b, 0) / drops.length;
+      if (avgDrop > 0.3) {
+        detailEl.textContent = 'Trending down after sessions';
+        detailEl.style.color = 'var(--success, #5a8a5e)';
+      } else if (avgDrop > 0) {
+        detailEl.textContent = 'Holding steady';
+        detailEl.style.color = 'var(--text-muted)';
+      } else {
+        detailEl.textContent = `${recent.length} sessions tracked`;
+        detailEl.style.color = 'var(--text-muted)';
+      }
+    }
+
+    // Draw mini sparkline
+    const canvas = document.getElementById('signal-proof-chart');
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    const dpr = window.devicePixelRatio || 1;
+    canvas.width = canvas.offsetWidth * dpr;
+    canvas.height = canvas.offsetHeight * dpr;
+    ctx.scale(dpr, dpr);
+    const w = canvas.offsetWidth;
+    const h = canvas.offsetHeight;
+    ctx.clearRect(0, 0, w, h);
+
+    const style = getComputedStyle(document.documentElement);
+    const mutedColor = style.getPropertyValue('--text-muted').trim() || '#6b6660';
+    const accentColor = style.getPropertyValue('--accent').trim() || '#4a6e4e';
+
+    // Draw "before" line (muted) and "after" line (accent)
+    const drawLine = (data, color, dashed) => {
+      if (data.length < 2) return;
+      const maxVal = 2; // Signal scale 0-2
+      const padY = 8;
+      const stepX = (w - 20) / (data.length - 1);
+
+      ctx.beginPath();
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 2;
+      if (dashed) ctx.setLineDash([4, 4]);
+      else ctx.setLineDash([]);
+
+      data.forEach((val, i) => {
+        const x = 10 + i * stepX;
+        const y = padY + ((maxVal - val) / maxVal) * (h - padY * 2);
+        if (i === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+      });
+      ctx.stroke();
+    };
+
+    drawLine(avgBefore, mutedColor, true);   // Before — dashed, muted
+    drawLine(avgAfter, accentColor, false);   // After — solid, accent green
+  }
+
+  /**
    * Start today's training — launches the challenge exercise for the current day.
    */
   startTodaysTraining() {
@@ -376,6 +549,9 @@ class SteadyApp {
   }
 
   launchPlayer(exerciseId, mode) {
+    // Re-attach callbacks in case a previous destroy() cleared them
+    this.setupPlayerCallbacks();
+    this._lastBreathingState = null; // Reset breathing state tracking
     this.player.start(exerciseId);
     this.playerMode = mode;
     this.navigate('player');
@@ -385,27 +561,55 @@ class SteadyApp {
 
   setupPlayerCallbacks() {
     this.player.onPhaseChange = (data) => {
-      if (data.phase === 'pre-check') this.showPlayerPhase('precheck');
-      else if (data.phase === 'intention') this.showPlayerPhase('intention');
-      else if (data.phase === 'active') this.showPlayerPhase('active');
-      else if (data.phase === 'post-check') this.showPlayerPhase('postcheck');
+      try {
+        if (data.phase === 'pre-check') this.showPlayerPhase('precheck');
+        else if (data.phase === 'intention') this.showPlayerPhase('intention');
+        else if (data.phase === 'active') this.showBriefing();
+        else if (data.phase === 'post-check') this.showPlayerPhase('postcheck');
+      } catch (e) {
+        console.error('Phase change error:', e);
+        // Fallback: try to show the active phase directly
+        try { this.showPlayerPhase('active'); } catch (_) { /* last resort */ }
+      }
     };
 
     this.player.onStepChange = (data) => {
-      this.renderActiveStep(data);
+      try {
+        this.renderActiveStep(data);
+      } catch (e) {
+        console.error('Step render error:', e);
+      }
     };
 
     this.player.onStepTick = (data) => {
-      // Update step progress if needed
+      try {
+        // Update countdown inside breathing circle
+        const countdownEl = document.getElementById('breathing-countdown');
+        if (countdownEl && data.duration) {
+          const remaining = data.duration - data.elapsed;
+          countdownEl.textContent = remaining > 0 ? remaining : '';
+        }
+
+        // Show "next up" cue when 2 seconds remain
+        if (data.duration && (data.duration - data.elapsed) === 2) {
+          this.showNextStepCue();
+        }
+      } catch (e) {
+        // Tick errors are non-fatal — swallow to keep timer running
+      }
     };
 
     this.player.onTimerTick = (data) => {
-      const timerEl = document.getElementById('player-timer');
-      const progressEl = document.getElementById('progress-fill');
-      if (timerEl) timerEl.textContent = formatTime(data.remaining);
-      if (progressEl) {
-        const pct = (data.elapsed / data.duration) * 100;
-        progressEl.style.width = `${pct}%`;
+      try {
+        const timerEl = document.getElementById('player-timer');
+        const progressEl = document.getElementById('progress-fill');
+        if (timerEl) timerEl.textContent = formatTime(data.remaining);
+        if (progressEl) {
+          const pct = (data.elapsed / data.duration) * 100;
+          progressEl.style.width = `${pct}%`;
+        }
+      } catch (e) {
+        // Tick errors are non-fatal
       }
     };
   }
@@ -421,6 +625,7 @@ class SteadyApp {
       if (titleEl) titleEl.textContent = this.player.currentExercise.title;
       if (timerEl) timerEl.textContent = formatTime(this.player.currentExercise.duration);
       this.renderStepDots();
+      this.renderPatternReference();
     }
 
     if (phase === 'intention') {
@@ -432,32 +637,209 @@ class SteadyApp {
     }
   }
 
+  /**
+   * Show the briefing screen before the active exercise phase
+   * Pauses the player while the user reads what the exercise is about
+   */
+  showBriefing() {
+    const ex = this.player.currentExercise;
+    if (!ex) return;
+
+    // Pause the player timer while briefing is shown
+    this.player.pause();
+
+    // Hide all phases, show briefing
+    document.querySelectorAll('.player-phase').forEach(p => (p.style.display = 'none'));
+    const briefingEl = document.getElementById('phase-briefing');
+    if (!briefingEl) {
+      // Fallback: skip briefing if element missing
+      this.startFromBriefing();
+      return;
+    }
+
+    // Populate briefing content
+    const titleEl = briefingEl.querySelector('.briefing-title');
+    const subtitleEl = briefingEl.querySelector('.briefing-subtitle');
+    const bodyEl = briefingEl.querySelector('.briefing-body');
+    const durationEl = briefingEl.querySelector('.briefing-duration');
+    const patternEl = briefingEl.querySelector('.briefing-pattern');
+    const modeEl = briefingEl.querySelector('.briefing-mode');
+
+    if (titleEl) titleEl.textContent = ex.title;
+    if (subtitleEl) subtitleEl.textContent = ex.subtitle || '';
+    if (bodyEl) bodyEl.textContent = ex.briefing || '';
+    if (durationEl) durationEl.textContent = formatTime(ex.duration);
+
+    // Show breathing pattern if applicable
+    if (patternEl) {
+      const pattern = this.getBreathingPattern(ex);
+      if (pattern) {
+        patternEl.textContent = pattern;
+        patternEl.style.display = 'block';
+      } else {
+        patternEl.style.display = 'none';
+      }
+    }
+
+    // Show mode badge
+    if (modeEl) {
+      const modeLabels = {
+        relief: 'Quick Relief',
+        training: 'Training',
+        challenge: 'Challenge',
+        both: 'Training',
+        prepare: 'Preparation'
+      };
+      modeEl.textContent = modeLabels[ex.mode] || 'Exercise';
+      modeEl.className = 'briefing-mode briefing-mode--' + (ex.mode || 'training');
+    }
+
+    briefingEl.style.display = 'flex';
+  }
+
+  /**
+   * Get a human-readable breathing pattern string for an exercise
+   */
+  getBreathingPattern(exercise) {
+    const steps = exercise.steps || [];
+    const breathSteps = steps.filter(s =>
+      s.type === 'breathe-in' || s.type === 'breathe-out' || s.type === 'hold' || s.type === 'pressure-hold'
+    );
+
+    if (breathSteps.length < 2) return null;
+
+    // Find the repeating pattern (first cycle)
+    const patternParts = [];
+    const typeLabels = {
+      'breathe-in': 'In',
+      'breathe-out': 'Out',
+      'hold': 'Hold',
+      'pressure-hold': 'Hold'
+    };
+
+    for (const step of steps) {
+      if (step.type === 'repeat' || step.type === 'prompt') {
+        if (patternParts.length >= 2) break;
+        if (step.type === 'prompt' && patternParts.length === 0) continue;
+        if (step.type === 'repeat') break;
+      }
+      if (typeLabels[step.type] && step.duration) {
+        patternParts.push(`${typeLabels[step.type]} ${step.duration}s`);
+      }
+      if (patternParts.length >= 6) break; // Cap at 6 to avoid huge patterns
+    }
+
+    if (patternParts.length < 2) return null;
+    return patternParts.join(' \u2192 ');
+  }
+
+  /**
+   * Render the persistent breathing pattern reference in the active phase header
+   */
+  renderPatternReference() {
+    const refEl = document.getElementById('pattern-reference');
+    if (!refEl) return;
+
+    const pattern = this.getBreathingPattern(this.player.currentExercise);
+    if (pattern) {
+      refEl.textContent = pattern;
+      refEl.style.display = 'block';
+    } else {
+      refEl.style.display = 'none';
+    }
+  }
+
+  /**
+   * Start the exercise from the briefing screen
+   */
+  startFromBriefing() {
+    // Clear any previous countdown that might still be running
+    this._clearCountdown();
+
+    // Show a short countdown transition before the exercise starts
+    document.querySelectorAll('.player-phase').forEach(p => (p.style.display = 'none'));
+    const countdownEl = document.getElementById('phase-countdown');
+    if (!countdownEl) {
+      this.showPlayerPhase('active');
+      this.player.resume();
+      return;
+    }
+
+    const wordEl = countdownEl.querySelector('.countdown-word');
+    countdownEl.style.display = 'flex';
+
+    const words = ['Ready', 'Breathe', 'Go'];
+    let i = 0;
+
+    wordEl.textContent = words[0];
+    wordEl.classList.add('countdown-word--visible');
+
+    this._countdownInterval = setInterval(() => {
+      i++;
+      if (i >= words.length) {
+        this._clearCountdown();
+        countdownEl.style.display = 'none';
+        this.showPlayerPhase('active');
+        this.player.resume();
+        return;
+      }
+      wordEl.classList.remove('countdown-word--visible');
+      setTimeout(() => {
+        wordEl.textContent = words[i];
+        wordEl.classList.add('countdown-word--visible');
+      }, 200);
+    }, 1000);
+  }
+
+  /** Clear the countdown interval to prevent timer leaks */
+  _clearCountdown() {
+    if (this._countdownInterval) {
+      clearInterval(this._countdownInterval);
+      this._countdownInterval = null;
+    }
+  }
+
   renderActiveStep(data) {
     const instruction = document.getElementById('step-instruction');
-    const hint = document.getElementById('step-type-hint');
     const circle = document.getElementById('breathing-circle');
+    const countdownEl = document.getElementById('breathing-countdown');
+    const nextCue = document.getElementById('step-next-cue');
 
     if (instruction) instruction.textContent = data.step.instruction;
 
-    // Step type hints
-    const typeLabels = {
-      'breathe-in': 'Breathe In',
-      'breathe-out': 'Breathe Out',
-      hold: 'Hold',
-      'pressure-hold': 'Hold',
-      prompt: '',
-      timed: '',
-      cognitive: 'Think',
-      disruption: 'RESET'
-    };
-    if (hint) hint.textContent = typeLabels[data.step.type] || '';
+    // Initialize countdown
+    if (countdownEl) {
+      countdownEl.textContent = data.step.duration > 0 ? data.step.duration : '';
+    }
+
+    // Clear next-step cue on new step
+    if (nextCue) {
+      nextCue.textContent = '';
+      nextCue.classList.remove('step-next-cue--visible');
+    }
 
     // Breathing circle animation
     if (circle) {
+      // Track previous state to keep hold at correct scale
+      const prevState = this._lastBreathingState || null;
+      this._lastBreathingState = data.breathingState;
+
       circle.className = 'breathing-circle';
-      if (data.breathingState === 'inhale') circle.classList.add('breathing-circle--inhale');
-      else if (data.breathingState === 'exhale') circle.classList.add('breathing-circle--exhale');
-      else if (data.breathingState === 'hold') circle.classList.add('breathing-circle--hold');
+      if (data.breathingState === 'inhale') {
+        circle.classList.add('breathing-circle--inhale');
+      } else if (data.breathingState === 'exhale') {
+        circle.classList.add('breathing-circle--exhale');
+      } else if (data.breathingState === 'hold') {
+        // Hold after inhale = stay expanded; hold after exhale = stay small
+        const isExpanded = (prevState === 'inhale' || prevState === null);
+        const holdClass = data.step.type === 'pressure-hold' ? 'breathing-circle--pressure-hold' : 'breathing-circle--hold';
+        circle.classList.add(holdClass);
+        if (isExpanded) {
+          circle.classList.add('breathing-circle--hold-expanded');
+        } else {
+          circle.classList.add('breathing-circle--hold-contracted');
+        }
+      }
     }
 
     // Disruption effect
@@ -468,9 +850,65 @@ class SteadyApp {
       }
     }
 
+    // Update step dots
+    const dotsContainer = document.getElementById('step-dots');
+    if (dotsContainer) {
+      const allDots = dotsContainer.querySelectorAll('.step-progress__dot');
+      allDots.forEach((dot, i) => {
+        dot.classList.remove('active', 'completed');
+        if (i === data.index) dot.classList.add('active');
+        else if (i < data.index) dot.classList.add('completed');
+      });
+    }
+
     // Update step count
     const stepCountEl = document.getElementById('step-count');
     if (stepCountEl) stepCountEl.textContent = `Step ${data.index + 1} of ${data.total}`;
+  }
+
+  /**
+   * Show a "next up" cue 2 seconds before step ends
+   * Peeks at the next step and displays a brief preview
+   */
+  showNextStepCue() {
+    const cueEl = document.getElementById('step-next-cue');
+    if (!cueEl) return;
+
+    const steps = this.player.resolvedSteps || (this.player.currentExercise && this.player.currentExercise.steps);
+    if (!steps) return;
+
+    const nextIndex = this.player.currentStepIndex + 1;
+
+    // If this is the last step, show completion cue
+    if (nextIndex >= steps.length) {
+      cueEl.textContent = 'Almost done';
+      cueEl.classList.add('step-next-cue--visible');
+      return;
+    }
+
+    const nextStep = steps[nextIndex];
+    if (!nextStep) return;
+
+    // If next step is a repeat, show the first step in the pattern instead
+    if (nextStep.type === 'repeat') {
+      cueEl.textContent = 'Next cycle starting';
+      cueEl.classList.add('step-next-cue--visible');
+      return;
+    }
+
+    const cueLabels = {
+      'breathe-in': 'Next: Breathe in',
+      'breathe-out': 'Next: Breathe out',
+      'hold': 'Next: Hold',
+      'pressure-hold': 'Next: Hold steady',
+      'prompt': 'Next: Reflect',
+      'timed': 'Next: Continue',
+      'cognitive': 'Next: Think',
+      'disruption': 'Next: Reset'
+    };
+
+    cueEl.textContent = cueLabels[nextStep.type] || 'Next step coming';
+    cueEl.classList.add('step-next-cue--visible');
   }
 
   renderSignalCheck(containerId, defaults) {
@@ -604,6 +1042,16 @@ class SteadyApp {
   }
 
   exitPlayer() {
+    // If exercise is actively running (even if paused or in countdown), confirm before exiting
+    if (this.player && this.player.isRunning) {
+      this.showModal('Leave exercise?', 'Your progress on this exercise will not be saved.', () => {
+        this._clearCountdown();
+        this.player.destroy();
+        this.navigate('home');
+      });
+      return;
+    }
+    this._clearCountdown();
     this.player.destroy();
     this.navigate('home');
   }
@@ -618,16 +1066,18 @@ class SteadyApp {
     const exercise = this.player.currentExercise;
     const elapsed = this.player.totalElapsed || (exercise ? exercise.duration : 0);
 
-    // --- Debrief title: contextual, not cheerful ---
+    // --- Debrief title: short, factual, on-brand ---
     const titleEl = document.getElementById('debrief-title');
     if (titleEl) {
-      const elevated = Object.values(before).filter(v => v > 0).length;
+      const elevated = Object.values(before).filter(v => v >= 2).length; // count high signals only
+      const totalSessions = getSessions().length + 1; // +1 for current unsaved session
+
       if (elevated === 0) {
-        titleEl.textContent = 'Logged.';
-      } else if (elevated >= 3) {
-        titleEl.textContent = 'That was a heavy one.';
+        titleEl.textContent = 'Session logged.';
+      } else if (totalSessions <= 3) {
+        titleEl.textContent = 'First reps in.';
       } else {
-        titleEl.textContent = 'Done.';
+        titleEl.textContent = 'Session complete.';
       }
     }
 
@@ -638,7 +1088,7 @@ class SteadyApp {
       const elevated = signals.filter(s => (before[s] || 0) > 0);
 
       if (elevated.length === 0) {
-        readout.innerHTML = '<p class="debrief-baseline">Started from baseline. Good maintenance session.</p>';
+        readout.innerHTML = '<p class="debrief-baseline">All signals at baseline. Rate again below to track any shift.</p>';
       } else {
         readout.innerHTML = elevated.map(sig => {
           const def = signalDefinitions[sig];
@@ -1041,16 +1491,21 @@ class SteadyApp {
   // ============================================
 
   renderProgress() {
-    // Stats
-    const statStreak = document.getElementById('stat-streak');
+    // Stats — lead with cumulative progress, demote streak
+    const statTotal = document.getElementById('stat-total');
+    const statChallenge = document.getElementById('stat-challenge');
     const statWeek = document.getElementById('stat-week');
-    const statMonth = document.getElementById('stat-month');
-    const statLongest = document.getElementById('stat-longest');
+    const statStreak = document.getElementById('stat-streak');
 
-    if (statStreak) statStreak.textContent = getStreak();
+    const sessions = getSessions();
+    const program = getChallengeProgram();
+    const completedDays = Array.isArray(program.completedDays) ? program.completedDays.length : 0;
+    const challengePct = Math.round((completedDays / 28) * 100);
+
+    if (statTotal) statTotal.textContent = sessions.length;
+    if (statChallenge) statChallenge.textContent = `${challengePct}%`;
     if (statWeek) statWeek.textContent = getWeeklyActivity().reduce((s, d) => s + d.count, 0);
-    if (statMonth) statMonth.textContent = getMonthlySessionCount();
-    if (statLongest) statLongest.textContent = getLongestStreak();
+    if (statStreak) statStreak.textContent = getStreak();
 
     // Challenge progress
     this.renderChallengeProgress();
@@ -1150,6 +1605,11 @@ class SteadyApp {
     if (!ctx) return;
 
     const data = getWeeklyActivity();
+
+    // Skip re-render if data hasn't changed since last draw
+    const dataKey = JSON.stringify(data);
+    if (this._chartCache.weeklyData === dataKey) return;
+    this._chartCache.weeklyData = dataKey;
     const dpr = window.devicePixelRatio || 1;
     canvas.width = canvas.offsetWidth * dpr;
     canvas.height = canvas.offsetHeight * dpr;
@@ -1189,7 +1649,22 @@ class SteadyApp {
     if (!ctx) return;
 
     const sessions = getSessions().slice(-14);
-    if (sessions.length < 2) return;
+    if (sessions.length < 2) {
+      // Show empty state message
+      const dpr = window.devicePixelRatio || 1;
+      canvas.width = canvas.offsetWidth * dpr;
+      canvas.height = canvas.offsetHeight * dpr;
+      ctx.scale(dpr, dpr);
+      const w = canvas.offsetWidth;
+      const h = canvas.offsetHeight;
+      ctx.clearRect(0, 0, w, h);
+      const style = getComputedStyle(document.documentElement);
+      ctx.fillStyle = style.getPropertyValue('--text-muted').trim() || '#6b6660';
+      ctx.font = '13px -apple-system, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText('Complete 2+ sessions to see trends', w / 2, h / 2);
+      return;
+    }
 
     const dpr = window.devicePixelRatio || 1;
     canvas.width = canvas.offsetWidth * dpr;
@@ -1224,21 +1699,46 @@ class SteadyApp {
   }
 
   renderRecentSessions() {
-    const sessions = getSessions().slice(-10).reverse();
+    const allSessions = getSessions().reverse();
     const list = document.getElementById('session-list');
     if (!list) return;
 
-    if (sessions.length === 0) {
+    if (allSessions.length === 0) {
       list.innerHTML = '<div class="empty-state">Complete your first exercise to see sessions here.</div>';
       return;
     }
 
-    list.innerHTML = sessions
+    // Limit to 20 most recent sessions
+    const sessions = allSessions.slice(0, 20);
+    const hasMore = allSessions.length > 20;
+
+    let html = sessions
       .map(s => {
         const ex = exercises.find(e => e.id === s.exerciseId);
         return `<div class="session-item"><div><strong>${this.escapeHtml(ex ? ex.title : s.exerciseId)}</strong><span class="session-date">${s.date}</span></div><span class="session-duration">${Math.ceil(s.duration / 60)}m</span></div>`;
       })
       .join('');
+
+    if (hasMore) {
+      html += `<button class="btn-ghost" style="width: 100%; margin-top: 12px;" onclick="app.showAllSessions()">Show more sessions</button>`;
+    }
+
+    list.innerHTML = html;
+  }
+
+  showAllSessions() {
+    const allSessions = getSessions().reverse();
+    const list = document.getElementById('session-list');
+    if (!list) return;
+
+    const html = allSessions
+      .map(s => {
+        const ex = exercises.find(e => e.id === s.exerciseId);
+        return `<div class="session-item"><div><strong>${this.escapeHtml(ex ? ex.title : s.exerciseId)}</strong><span class="session-date">${s.date}</span></div><span class="session-duration">${Math.ceil(s.duration / 60)}m</span></div>`;
+      })
+      .join('');
+
+    list.innerHTML = html;
   }
 
   renderMostHelpful() {
@@ -1538,11 +2038,40 @@ class SteadyApp {
         this.closeModal();
       };
     }
+
+    // Focus the confirm button for keyboard accessibility
+    if (confirmBtn) confirmBtn.focus();
+
+    // Close on Escape key
+    this._modalEscHandler = (e) => {
+      if (e.key === 'Escape') this.closeModal();
+    };
+    document.addEventListener('keydown', this._modalEscHandler);
+
+    // Close on backdrop click (deferred to avoid catching the originating click)
+    if (modal) {
+      this._modalBackdropHandler = (e) => {
+        if (e.target === modal) this.closeModal();
+      };
+      requestAnimationFrame(() => {
+        modal.addEventListener('click', this._modalBackdropHandler);
+      });
+    }
   }
 
   closeModal() {
     const modal = document.getElementById('confirm-modal');
-    if (modal) modal.style.display = 'none';
+    if (modal) {
+      modal.style.display = 'none';
+      if (this._modalBackdropHandler) {
+        modal.removeEventListener('click', this._modalBackdropHandler);
+        this._modalBackdropHandler = null;
+      }
+    }
+    if (this._modalEscHandler) {
+      document.removeEventListener('keydown', this._modalEscHandler);
+      this._modalEscHandler = null;
+    }
   }
 
   showToast(message) {
@@ -1572,15 +2101,44 @@ class SteadyApp {
     const dots = document.getElementById('step-dots');
     if (!dots) return;
 
-    dots.innerHTML = Array.from({ length: count }, (_, i) => `<div class="step-dot ${i === 0 ? 'active' : ''}"></div>`).join('');
+    const existing = dots.querySelectorAll('.step-progress__dot');
+    if (existing.length === count) {
+      // Reuse existing dots — just reset classes
+      existing.forEach((dot, i) => {
+        dot.classList.remove('active', 'completed');
+        if (i === 0) dot.classList.add('active');
+      });
+      return;
+    }
+
+    // Only rebuild DOM when count actually changes
+    dots.innerHTML = Array.from({ length: count }, (_, i) => `<div class="step-progress__dot ${i === 0 ? 'active' : ''}"></div>`).join('');
   }
 
   registerSW() {
-    if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.register('/sw.js').catch(() => {
-        // Service worker registration failed, continue without it
+    if (!('serviceWorker' in navigator)) return;
+
+    navigator.serviceWorker.register('/sw.js')
+      .then(reg => {
+        // Check for updates periodically (every 60 min)
+        setInterval(() => {
+          reg.update().catch(() => {});
+        }, 60 * 60 * 1000);
+
+        // Notify user when new SW is waiting
+        reg.addEventListener('updatefound', () => {
+          const newWorker = reg.installing;
+          if (!newWorker) return;
+          newWorker.addEventListener('statechange', () => {
+            if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
+              this.showToast('Update available — refresh for latest version.');
+            }
+          });
+        });
+      })
+      .catch(err => {
+        console.warn('SW registration failed:', err.message);
       });
-    }
   }
 
   setupReminder() {
@@ -1626,6 +2184,15 @@ class SteadyApp {
     return div.innerHTML;
   }
 }
+
+// Global error boundary — prevent unhandled errors from crashing the app
+window.addEventListener('error', (e) => {
+  console.error('Unhandled error:', e.error || e.message);
+});
+window.addEventListener('unhandledrejection', (e) => {
+  console.error('Unhandled promise rejection:', e.reason);
+  e.preventDefault(); // Prevent default browser logging noise
+});
 
 // Initialize the app
 const app = new SteadyApp();

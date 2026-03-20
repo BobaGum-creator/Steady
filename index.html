@@ -10,6 +10,17 @@
   <title>Steady</title>
   <link rel="manifest" href="manifest.json">
   <link rel="stylesheet" href="styles.css">
+  <script>
+    // Inline theme application to prevent flash of wrong theme
+    try {
+      var s = JSON.parse(localStorage.getItem('steady_settings') || '{}');
+      var t = s.theme || 'dark';
+      if (t === 'auto') {
+        t = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+      }
+      document.documentElement.setAttribute('data-theme', t);
+    } catch(e) { /* fallback to default dark theme from HTML attr */ }
+  </script>
 </head>
 <body>
   <div class="app-container" id="app">
@@ -62,9 +73,9 @@
       <div class="view-content">
         <header class="view-header home-header">
           <h1 class="app-title">Steady</h1>
-          <div class="home-streak" id="home-streak" style="display:none">
-            <svg viewBox="0 0 20 20" width="16" height="16"><path d="M10 2 C10 2 4 8 4 12a6 6 0 0012 0c0-4-6-10-6-10z" fill="var(--accent)" opacity="0.8"/></svg>
-            <span id="home-streak-count"></span>
+          <div class="home-sessions-badge" id="home-sessions-badge" style="display:none">
+            <svg viewBox="0 0 20 20" width="14" height="14" aria-hidden="true" focusable="false"><circle cx="10" cy="10" r="8" stroke="var(--accent)" stroke-width="1.5" fill="none"/><path d="M10 5v5l3 3" stroke="var(--accent)" stroke-width="1.5" fill="none" stroke-linecap="round"/></svg>
+            <span id="home-sessions-count"></span>
           </div>
         </header>
 
@@ -76,7 +87,7 @@
           </div>
           <div class="backup-banner-actions">
             <button class="backup-banner-btn" onclick="app.exportAndMarkBackup()">Export</button>
-            <button class="backup-banner-dismiss" onclick="app.dismissBackup()">&times;</button>
+            <button class="backup-banner-dismiss" onclick="app.dismissBackup()" aria-label="Dismiss backup reminder">&times;</button>
           </div>
         </div>
 
@@ -105,14 +116,14 @@
 
           <!-- Completed state -->
           <div class="training-done" id="training-done" style="display:none">
-            <svg class="check-icon" viewBox="0 0 24 24" width="24" height="24"><path d="M20 6L9 17l-5-5" stroke="currentColor" stroke-width="2" fill="none"/></svg>
+            <svg class="check-icon" viewBox="0 0 24 24" width="24" height="24" aria-hidden="true" focusable="false"><path d="M20 6L9 17l-5-5" stroke="currentColor" stroke-width="2" fill="none"/></svg>
             <span>Done for today</span>
           </div>
 
           <!-- Level complete state -->
           <div class="training-level-complete" id="training-level-complete" style="display:none">
             <div class="level-complete-celebration">
-              <svg class="completion-check" viewBox="0 0 64 64" width="48" height="48"><circle cx="32" cy="32" r="30" stroke="var(--success)" stroke-width="2" fill="none"/><path d="M20 32l8 8 16-16" stroke="var(--success)" stroke-width="3" fill="none"/></svg>
+              <svg class="completion-check" viewBox="0 0 64 64" width="48" height="48" aria-hidden="true" focusable="false"><circle cx="32" cy="32" r="30" stroke="var(--success)" stroke-width="2" fill="none"/><path d="M20 32l8 8 16-16" stroke="var(--success)" stroke-width="3" fill="none"/></svg>
               <h3 class="level-complete-title">Level Complete</h3>
               <p class="level-complete-message">You finished the 28-day program. Your skills are real.</p>
             </div>
@@ -121,33 +132,42 @@
           </div>
         </div>
 
+        <!-- SIGNAL PROOF (mini trend shown after 3+ sessions) -->
+        <div class="signal-proof" id="signal-proof" style="display:none">
+          <div class="signal-proof-header">
+            <span class="signal-proof-label">Your signals</span>
+            <span class="signal-proof-detail" id="signal-proof-detail"></span>
+          </div>
+          <canvas id="signal-proof-chart" height="64" role="img" aria-label="Signal trend chart showing recent check-in data"></canvas>
+        </div>
+
         <!-- PREPARE SECTION (compact row) -->
         <div class="prepare-row" onclick="app.startPrepare()">
           <div class="prepare-row-content">
             <span class="prepare-row-label">Something coming up?</span>
             <span class="prepare-row-desc">60-sec protocol</span>
           </div>
-          <svg viewBox="0 0 24 24" width="20" height="20"><polyline points="9 18 15 12 9 6" stroke="var(--accent)" stroke-width="2" fill="none"/></svg>
+          <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" focusable="false"><polyline points="9 18 15 12 9 6" stroke="var(--accent)" stroke-width="2" fill="none"/></svg>
         </div>
 
         <!-- RELIEF SECTION (compact, always accessible) -->
         <div class="relief-section relief-section--compact">
-          <p class="section-label">Reset tools</p>
+          <p class="section-label">Quick relief</p>
           <div class="signal-grid signal-grid--compact" id="signal-grid">
             <button class="signal-card signal-card--mini signal-card--mind" onclick="app.tapSignal('mind')">
-              <svg viewBox="0 0 28 28" width="20" height="20"><circle cx="14" cy="14" r="10" stroke="currentColor" stroke-width="1.5" fill="none"/><circle cx="14" cy="14" r="6" stroke="currentColor" stroke-width="1.5" fill="none"/><circle cx="14" cy="14" r="2" fill="currentColor"/></svg>
+              <svg viewBox="0 0 28 28" width="20" height="20" aria-hidden="true" focusable="false"><circle cx="14" cy="14" r="10" stroke="currentColor" stroke-width="1.5" fill="none"/><circle cx="14" cy="14" r="6" stroke="currentColor" stroke-width="1.5" fill="none"/><circle cx="14" cy="14" r="2" fill="currentColor"/></svg>
               <span>Racing Mind</span>
             </button>
             <button class="signal-card signal-card--mini signal-card--body" onclick="app.tapSignal('body')">
-              <svg viewBox="0 0 28 28" width="20" height="20"><line x1="8" y1="8" x2="20" y2="8" stroke="currentColor" stroke-width="2"/><line x1="8" y1="14" x2="20" y2="14" stroke="currentColor" stroke-width="2"/><line x1="8" y1="20" x2="20" y2="20" stroke="currentColor" stroke-width="2"/></svg>
+              <svg viewBox="0 0 28 28" width="20" height="20" aria-hidden="true" focusable="false"><line x1="8" y1="8" x2="20" y2="8" stroke="currentColor" stroke-width="2"/><line x1="8" y1="14" x2="20" y2="14" stroke="currentColor" stroke-width="2"/><line x1="8" y1="20" x2="20" y2="20" stroke="currentColor" stroke-width="2"/></svg>
               <span>Tight Body</span>
             </button>
             <button class="signal-card signal-card--mini signal-card--breath" onclick="app.tapSignal('breath')">
-              <svg viewBox="0 0 28 28" width="20" height="20"><path d="M2 14 Q7 6 14 14 Q21 22 26 14" stroke="currentColor" stroke-width="1.5" fill="none"/></svg>
+              <svg viewBox="0 0 28 28" width="20" height="20" aria-hidden="true" focusable="false"><path d="M2 14 Q7 6 14 14 Q21 22 26 14" stroke="currentColor" stroke-width="1.5" fill="none"/></svg>
               <span>Shallow Breath</span>
             </button>
             <button class="signal-card signal-card--mini signal-card--pressure" onclick="app.tapSignal('pressure')">
-              <svg viewBox="0 0 28 28" width="20" height="20"><polyline points="8,16 14,10 20,16" stroke="currentColor" stroke-width="2" fill="none"/><polyline points="8,22 14,16 20,22" stroke="currentColor" stroke-width="2" fill="none"/></svg>
+              <svg viewBox="0 0 28 28" width="20" height="20" aria-hidden="true" focusable="false"><polyline points="8,16 14,10 20,16" stroke="currentColor" stroke-width="2" fill="none"/><polyline points="8,22 14,16 20,22" stroke="currentColor" stroke-width="2" fill="none"/></svg>
               <span>Pressure</span>
             </button>
           </div>
@@ -216,40 +236,62 @@
         </div>
       </div>
 
+      <!-- Phase: Briefing (shows before active exercise) -->
+      <div class="player-phase" id="phase-briefing" style="display:none">
+        <div class="view-content briefing-content">
+          <span class="briefing-mode"></span>
+          <h2 class="briefing-title"></h2>
+          <p class="briefing-subtitle"></p>
+          <p class="briefing-body"></p>
+          <div class="briefing-meta">
+            <span class="briefing-pattern" style="display:none"></span>
+            <span class="briefing-duration-label">Duration: <strong class="briefing-duration"></strong></span>
+          </div>
+          <button class="btn-primary" onclick="app.startFromBriefing()">Begin Exercise</button>
+        </div>
+      </div>
+
+      <!-- Phase: Pre-exercise countdown -->
+      <div class="player-phase" id="phase-countdown" style="display:none">
+        <span class="countdown-word" aria-live="assertive" role="status"></span>
+      </div>
+
       <!-- Phase: Active Exercise -->
       <div class="player-phase" id="phase-active" style="display:none">
         <div class="player-header">
           <button class="btn-icon" onclick="app.exitPlayer()" aria-label="Close">
-            <svg viewBox="0 0 24 24" width="24" height="24"><line x1="18" y1="6" x2="6" y2="18" stroke="currentColor" stroke-width="2"/><line x1="6" y1="6" x2="18" y2="18" stroke="currentColor" stroke-width="2"/></svg>
+            <svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true" focusable="false"><line x1="18" y1="6" x2="6" y2="18" stroke="currentColor" stroke-width="2"/><line x1="6" y1="6" x2="18" y2="18" stroke="currentColor" stroke-width="2"/></svg>
           </button>
           <h3 class="player-title" id="player-title"></h3>
           <span class="player-timer" id="player-timer" aria-live="off">0:00</span>
         </div>
+        <div class="pattern-reference" id="pattern-reference" style="display:none"></div>
 
         <div class="player-body">
           <div class="breathing-circle" id="breathing-circle">
-            <div class="breathing-circle-inner" id="breathing-inner"></div>
+            <span class="breathing-countdown" id="breathing-countdown"></span>
           </div>
           <p class="step-instruction" id="step-instruction" aria-live="assertive"></p>
-          <span class="step-type-hint" id="step-type-hint"></span>
+          <!-- step-type-hint removed: redundant with instruction text -->
+          <span class="step-next-cue" id="step-next-cue" aria-live="polite"></span>
         </div>
 
         <div class="player-footer">
           <div class="step-progress">
-            <div class="step-dots" id="step-dots"></div>
-            <div class="progress-bar"><div class="progress-bar-fill" id="progress-fill"></div></div>
-            <span class="step-count" id="step-count"></span>
+            <div class="step-progress__dots" id="step-dots"></div>
+            <div class="step-progress__bar"><div class="step-progress__bar-fill" id="progress-fill"></div></div>
+            <span class="step-progress__text" id="step-count"></span>
           </div>
           <div class="player-controls">
             <button class="btn-icon" onclick="app.restartExercise()" aria-label="Restart">
-              <svg viewBox="0 0 24 24" width="24" height="24"><path d="M1 4v6h6M23 20v-6h-6" stroke="currentColor" stroke-width="2" fill="none"/><path d="M20.49 9A9 9 0 005.64 5.64L1 10m22 4l-4.64 4.36A9 9 0 003.51 15" stroke="currentColor" stroke-width="2" fill="none"/></svg>
+              <svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true" focusable="false"><path d="M1 4v6h6M23 20v-6h-6" stroke="currentColor" stroke-width="2" fill="none"/><path d="M20.49 9A9 9 0 005.64 5.64L1 10m22 4l-4.64 4.36A9 9 0 003.51 15" stroke="currentColor" stroke-width="2" fill="none"/></svg>
             </button>
             <button class="btn-icon btn-icon--large" id="pause-btn" onclick="app.togglePause()" aria-label="Pause">
-              <svg viewBox="0 0 24 24" width="32" height="32" id="pause-icon"><rect x="6" y="4" width="4" height="16" rx="1" fill="currentColor"/><rect x="14" y="4" width="4" height="16" rx="1" fill="currentColor"/></svg>
-              <svg viewBox="0 0 24 24" width="32" height="32" id="play-icon" style="display:none"><polygon points="5,3 19,12 5,21" fill="currentColor"/></svg>
+              <svg viewBox="0 0 24 24" width="32" height="32" id="pause-icon" aria-hidden="true" focusable="false"><rect x="6" y="4" width="4" height="16" rx="1" fill="currentColor"/><rect x="14" y="4" width="4" height="16" rx="1" fill="currentColor"/></svg>
+              <svg viewBox="0 0 24 24" width="32" height="32" id="play-icon" style="display:none" aria-hidden="true" focusable="false"><polygon points="5,3 19,12 5,21" fill="currentColor"/></svg>
             </button>
             <button class="btn-icon" onclick="app.skipStep()" aria-label="Skip">
-              <svg viewBox="0 0 24 24" width="24" height="24"><polygon points="5,4 15,12 5,20" fill="currentColor"/><line x1="19" y1="5" x2="19" y2="19" stroke="currentColor" stroke-width="2"/></svg>
+              <svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true" focusable="false"><polygon points="5,4 15,12 5,20" fill="currentColor"/><line x1="19" y1="5" x2="19" y2="19" stroke="currentColor" stroke-width="2"/></svg>
             </button>
           </div>
         </div>
@@ -314,13 +356,13 @@
         <!-- Unload Tab -->
         <div class="journal-content" id="tab-unload">
           <div class="journal-form">
-            <label class="form-label">What is stressing me right now?</label>
+            <label class="form-label" for="journal-stressor">What is stressing me right now?</label>
             <textarea class="textarea" id="journal-stressor" rows="3" placeholder="Get it out of your head..."></textarea>
 
-            <label class="form-label">What is actually in my control?</label>
+            <label class="form-label" for="journal-control">What is actually in my control?</label>
             <textarea class="textarea" id="journal-control" rows="2" placeholder="Focus on what you can change..."></textarea>
 
-            <label class="form-label">One next step</label>
+            <label class="form-label" for="journal-nextstep">One next step</label>
             <textarea class="textarea" id="journal-nextstep" rows="2" placeholder="Something small and concrete..."></textarea>
 
             <button class="btn-primary" onclick="app.saveJournal()">Save Entry</button>
@@ -330,7 +372,7 @@
         <!-- Reflect Tab -->
         <div class="journal-content" id="tab-reflect" style="display:none">
           <div class="journal-form">
-            <label class="form-label">What situation did you face?</label>
+            <label class="form-label" for="reflect-situation">What situation did you face?</label>
             <textarea class="textarea" id="reflect-situation" rows="3" placeholder="Describe the situation..."></textarea>
 
             <label class="form-label">Did you use your tools?</label>
@@ -347,7 +389,7 @@
               <button class="chip" data-value="2" onclick="app.selectReflectOption(this, 'reflect-regulation')">Steady</button>
             </div>
 
-            <label class="form-label">What would you do differently?</label>
+            <label class="form-label" for="reflect-wouldchange">What would you do differently?</label>
             <textarea class="textarea" id="reflect-wouldchange" rows="2" placeholder="For next time..."></textarea>
 
             <button class="btn-primary" onclick="app.saveReflection()">Save Reflection</button>
@@ -370,21 +412,21 @@
         </header>
 
         <div class="stats-grid">
-          <div class="stat-card">
-            <span class="stat-number" id="stat-streak">0</span>
-            <span class="stat-label">Practice Streak</span>
+          <div class="stat-card stat-card--primary">
+            <span class="stat-number" id="stat-total">0</span>
+            <span class="stat-label">Total Sessions</span>
+          </div>
+          <div class="stat-card stat-card--primary">
+            <span class="stat-number" id="stat-challenge">0%</span>
+            <span class="stat-label">Challenge</span>
           </div>
           <div class="stat-card">
             <span class="stat-number" id="stat-week">0</span>
             <span class="stat-label">This Week</span>
           </div>
           <div class="stat-card">
-            <span class="stat-number" id="stat-month">0</span>
-            <span class="stat-label">Last 30 Days</span>
-          </div>
-          <div class="stat-card">
-            <span class="stat-number" id="stat-longest">0</span>
-            <span class="stat-label">Longest Streak</span>
+            <span class="stat-number" id="stat-streak">0</span>
+            <span class="stat-label">Streak</span>
           </div>
         </div>
 
@@ -407,7 +449,7 @@
         <div class="card">
           <h3 class="card-title">Signal Trends</h3>
           <div class="chart-container">
-            <canvas id="signal-chart" width="320" height="200"></canvas>
+            <canvas id="signal-chart" height="200" role="img" aria-label="Signal trends chart showing how your stress signals change over time"></canvas>
           </div>
         </div>
 
@@ -415,7 +457,7 @@
         <div class="card">
           <h3 class="card-title">This Week</h3>
           <div class="chart-container">
-            <canvas id="weekly-chart" width="320" height="150"></canvas>
+            <canvas id="weekly-chart" height="150" role="img" aria-label="Weekly activity chart showing sessions completed each day"></canvas>
           </div>
         </div>
 
@@ -523,30 +565,30 @@
     <!-- BOTTOM TAB BAR -->
     <nav class="tab-bar">
       <button class="tab active" data-view="home" onclick="app.navigate('home')" aria-label="Home">
-        <svg viewBox="0 0 24 24" width="20" height="20"><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z" stroke="currentColor" stroke-width="1.5" fill="none"/></svg>
+        <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" focusable="false"><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z" stroke="currentColor" stroke-width="1.5" fill="none"/></svg>
         <span>Home</span>
       </button>
       <button class="tab" data-view="library" onclick="app.navigate('library')" aria-label="Exercises">
-        <svg viewBox="0 0 24 24" width="20" height="20"><rect x="3" y="3" width="7" height="7" rx="1" stroke="currentColor" stroke-width="1.5" fill="none"/><rect x="14" y="3" width="7" height="7" rx="1" stroke="currentColor" stroke-width="1.5" fill="none"/><rect x="3" y="14" width="7" height="7" rx="1" stroke="currentColor" stroke-width="1.5" fill="none"/><rect x="14" y="14" width="7" height="7" rx="1" stroke="currentColor" stroke-width="1.5" fill="none"/></svg>
+        <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" focusable="false"><rect x="3" y="3" width="7" height="7" rx="1" stroke="currentColor" stroke-width="1.5" fill="none"/><rect x="14" y="3" width="7" height="7" rx="1" stroke="currentColor" stroke-width="1.5" fill="none"/><rect x="3" y="14" width="7" height="7" rx="1" stroke="currentColor" stroke-width="1.5" fill="none"/><rect x="14" y="14" width="7" height="7" rx="1" stroke="currentColor" stroke-width="1.5" fill="none"/></svg>
         <span>Exercises</span>
       </button>
       <button class="tab" data-view="journal" onclick="app.navigate('journal')" aria-label="Unload">
-        <svg viewBox="0 0 24 24" width="20" height="20"><path d="M12 20h9M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4L16.5 3.5z" stroke="currentColor" stroke-width="1.5" fill="none"/></svg>
+        <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" focusable="false"><path d="M12 20h9M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4L16.5 3.5z" stroke="currentColor" stroke-width="1.5" fill="none"/></svg>
         <span>Unload</span>
       </button>
       <button class="tab" data-view="history" onclick="app.navigate('history')" aria-label="Progress">
-        <svg viewBox="0 0 24 24" width="20" height="20"><polyline points="22,12 18,12 15,21 9,3 6,12 2,12" stroke="currentColor" stroke-width="1.5" fill="none"/></svg>
+        <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" focusable="false"><polyline points="22,12 18,12 15,21 9,3 6,12 2,12" stroke="currentColor" stroke-width="1.5" fill="none"/></svg>
         <span>Progress</span>
       </button>
       <button class="tab" data-view="settings" onclick="app.navigate('settings')" aria-label="Settings">
-        <svg viewBox="0 0 24 24" width="20" height="20"><circle cx="12" cy="12" r="3" stroke="currentColor" stroke-width="1.5" fill="none"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 01-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z" stroke="currentColor" stroke-width="1.5" fill="none"/></svg>
+        <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="3" stroke="currentColor" stroke-width="1.5" fill="none"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 01-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z" stroke="currentColor" stroke-width="1.5" fill="none"/></svg>
         <span>Settings</span>
       </button>
     </nav>
 
     <!-- Confirmation Modal -->
-    <div class="modal" id="confirm-modal" style="display:none">
-      <div class="modal-card">
+    <div class="modal" id="confirm-modal" style="display:none" role="dialog" aria-modal="true" aria-labelledby="modal-title" aria-describedby="modal-message">
+      <div class="modal__content">
         <h3 id="modal-title"></h3>
         <p id="modal-message"></p>
         <div class="modal-actions">
