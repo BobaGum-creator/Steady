@@ -293,6 +293,18 @@
             <button class="btn-icon" onclick="app.skipStep()" aria-label="Skip">
               <svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true" focusable="false"><polygon points="5,4 15,12 5,20" fill="currentColor"/><line x1="19" y1="5" x2="19" y2="19" stroke="currentColor" stroke-width="2"/></svg>
             </button>
+            <button class="btn-icon" id="voice-toggle-btn" onclick="app.toggleVoice()" aria-label="Toggle voice">
+              <svg viewBox="0 0 24 24" width="24" height="24" id="voice-on-icon" aria-hidden="true" focusable="false">
+                <polygon points="11,5 6,9 2,9 2,15 6,15 11,19" fill="currentColor"/>
+                <path d="M15.54 8.46a5 5 0 010 7.07" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round"/>
+                <path d="M19.07 4.93a10 10 0 010 14.14" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round"/>
+              </svg>
+              <svg viewBox="0 0 24 24" width="24" height="24" id="voice-off-icon" style="display:none" aria-hidden="true" focusable="false">
+                <polygon points="11,5 6,9 2,9 2,15 6,15 11,19" fill="currentColor"/>
+                <line x1="23" y1="9" x2="17" y2="15" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                <line x1="17" y1="9" x2="23" y2="15" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+              </svg>
+            </button>
           </div>
         </div>
       </div>
@@ -492,6 +504,28 @@
               <input type="checkbox" id="setting-sound" checked onchange="app.updateSetting('sound', this.checked)">
               <span class="toggle-slider"></span>
             </label>
+          </div>
+
+          <div class="setting-row">
+            <div>
+              <span class="setting-label">Voice Instructor</span>
+              <span class="setting-desc">Spoken cues during exercises</span>
+            </div>
+            <label class="toggle-switch">
+              <input type="checkbox" id="setting-voice" checked onchange="app.updateSetting('voiceEnabled', this.checked)">
+              <span class="toggle-slider"></span>
+            </label>
+          </div>
+
+          <div class="setting-row" id="voice-select-row">
+            <div>
+              <span class="setting-label">Voice</span>
+              <span class="setting-desc">Choose your instructor</span>
+            </div>
+            <select id="setting-voice-id" class="setting-select" onchange="app.updateSetting('voiceId', this.value)">
+              <option value="john">John</option>
+              <option value="jane">Jane</option>
+            </select>
           </div>
 
           <div class="setting-row">

@@ -389,7 +389,7 @@ export function saveProfile(profile) {
 
 /**
  * Get user settings
- * @returns {Object} {sound, reducedMotion, theme, reminderEnabled, reminderTime}
+ * @returns {Object} {sound, reducedMotion, theme, reminderEnabled, reminderTime, voiceEnabled, voiceId}
  */
 export function getSettings() {
   return safeParse(localStorage.getItem(getKey('settings')), {
@@ -398,6 +398,8 @@ export function getSettings() {
     theme: 'dark',
     reminderEnabled: true,
     reminderTime: '09:00',
+    voiceEnabled: true,
+    voiceId: 'john',
   });
 }
 

@@ -15,6 +15,7 @@ import {
 } from './storage.js';
 import { getActiveInsights, getReliefRecommendation } from './insights.js';
 import { initDB, syncBackup, restoreFromBackup } from './idb.js';
+import voicePlayer from './voice-player.js';
 
 class SteadyApp {
   constructor() {
@@ -62,6 +63,10 @@ class SteadyApp {
       const settings = getSettings();
       this.applyTheme(settings.theme);
       this.applyReducedMotion(settings.reducedMotion);
+
+      // Initialize voice player from saved settings
+      voicePlayer.setEnabled(settings.voiceEnabled !== false);
+      if (settings.voiceId) voicePlayer.setVoice(settings.voiceId);
 
       // Check onboarding
       const profile = getProfile();
@@ -552,6 +557,7 @@ class SteadyApp {
     // Re-attach callbacks in case a previous destroy() cleared them
     this.setupPlayerCallbacks();
     this._lastBreathingState = null; // Reset breathing state tracking
+    this._activePhaseVisible = false; // Track when active phase is actually on screen
     this.player.start(exerciseId);
     this.playerMode = mode;
     this.navigate('player');
@@ -576,6 +582,21 @@ class SteadyApp {
     this.player.onStepChange = (data) => {
       try {
         this.renderActiveStep(data);
+
+        // Play voice clip — but NOT for step 0 during the countdown transition.
+        // Step 0's voice is triggered by startFromBriefing() after the countdown ends.
+        if (data.index === 0 && !this._activePhaseVisible) {
+          // Preload step 0 so it plays instantly when the countdown finishes
+          voicePlayer.preload(data.step);
+        } else {
+          voicePlayer.play(data.step);
+        }
+
+        // Preload the next step's clip for gapless transition
+        const steps = this.player.resolvedSteps || (this.player.currentExercise && this.player.currentExercise.steps);
+        if (steps && data.index + 1 < steps.length) {
+          voicePlayer.preload(steps[data.index + 1]);
+        }
       } catch (e) {
         console.error('Step render error:', e);
       }
@@ -590,8 +611,8 @@ class SteadyApp {
           countdownEl.textContent = remaining > 0 ? remaining : '';
         }
 
-        // Show "next up" cue when 2 seconds remain
-        if (data.duration && (data.duration - data.elapsed) === 2) {
+        // Show "next up" cue when 2 seconds remain — only when voice is OFF
+        if (!voicePlayer.isEnabled() && data.duration && (data.duration - data.elapsed) === 2) {
           this.showNextStepCue();
         }
       } catch (e) {
@@ -626,6 +647,15 @@ class SteadyApp {
       if (timerEl) timerEl.textContent = formatTime(this.player.currentExercise.duration);
       this.renderStepDots();
       this.renderPatternReference();
+
+      // Sync voice toggle button to current state
+      const isVoiceOn = voicePlayer.isEnabled();
+      const onIcon = document.getElementById('voice-on-icon');
+      const offIcon = document.getElementById('voice-off-icon');
+      const voiceBtn = document.getElementById('voice-toggle-btn');
+      if (onIcon) onIcon.style.display = isVoiceOn ? 'block' : 'none';
+      if (offIcon) offIcon.style.display = isVoiceOn ? 'none' : 'block';
+      if (voiceBtn) voiceBtn.classList.toggle('voice-off', !isVoiceOn);
     }
 
     if (phase === 'intention') {
@@ -761,6 +791,8 @@ class SteadyApp {
     const countdownEl = document.getElementById('phase-countdown');
     if (!countdownEl) {
       this.showPlayerPhase('active');
+      this._activePhaseVisible = true;
+      this._playFirstStepVoice();
       this.player.resume();
       return;
     }
@@ -780,6 +812,8 @@ class SteadyApp {
         this._clearCountdown();
         countdownEl.style.display = 'none';
         this.showPlayerPhase('active');
+        this._activePhaseVisible = true;
+        this._playFirstStepVoice();
         this.player.resume();
         return;
       }
@@ -825,6 +859,9 @@ class SteadyApp {
       this._lastBreathingState = data.breathingState;
 
       circle.className = 'breathing-circle';
+      // Set animation duration to match actual step duration
+      const stepDuration = data.step && data.step.duration ? data.step.duration : 4;
+      circle.style.setProperty('--breath-duration', `${stepDuration}s`);
       if (data.breathingState === 'inhale') {
         circle.classList.add('breathing-circle--inhale');
       } else if (data.breathingState === 'exhale') {
@@ -1020,12 +1057,14 @@ class SteadyApp {
   togglePause() {
     if (this.player.isPaused) {
       this.player.resume();
+      voicePlayer.resume();
       const pauseIcon = document.getElementById('pause-icon');
       const playIcon = document.getElementById('play-icon');
       if (pauseIcon) pauseIcon.style.display = 'block';
       if (playIcon) playIcon.style.display = 'none';
     } else {
       this.player.pause();
+      voicePlayer.pause();
       const pauseIcon = document.getElementById('pause-icon');
       const playIcon = document.getElementById('play-icon');
       if (pauseIcon) pauseIcon.style.display = 'none';
@@ -1034,11 +1073,52 @@ class SteadyApp {
   }
 
   restartExercise() {
+    voicePlayer.stop();
     this.player.restart();
   }
 
   skipStep() {
+    voicePlayer.stop();
     this.player.skipStep();
+  }
+
+  /**
+   * Toggle voice instructor on/off from the player control bar.
+   * Syncs with the global setting in localStorage.
+   */
+  /**
+   * Play the voice clip for step 0 after the countdown transition finishes.
+   * Called by startFromBriefing() when the active phase becomes visible.
+   */
+  _playFirstStepVoice() {
+    const step = this.player.getCurrentStep();
+    if (step) {
+      voicePlayer.play(step);
+    }
+  }
+
+  toggleVoice() {
+    const isEnabled = voicePlayer.isEnabled();
+    const newState = !isEnabled;
+
+    voicePlayer.setEnabled(newState);
+
+    // Update icon
+    const onIcon = document.getElementById('voice-on-icon');
+    const offIcon = document.getElementById('voice-off-icon');
+    const btn = document.getElementById('voice-toggle-btn');
+    if (onIcon) onIcon.style.display = newState ? 'block' : 'none';
+    if (offIcon) offIcon.style.display = newState ? 'none' : 'block';
+    if (btn) btn.classList.toggle('voice-off', !newState);
+
+    // Persist to settings
+    const settings = getSettings();
+    settings.voiceEnabled = newState;
+    saveSettings(settings);
+
+    // Update settings page toggle if visible
+    const settingVoiceEl = document.getElementById('setting-voice');
+    if (settingVoiceEl) settingVoiceEl.checked = newState;
   }
 
   exitPlayer() {
@@ -1046,12 +1126,14 @@ class SteadyApp {
     if (this.player && this.player.isRunning) {
       this.showModal('Leave exercise?', 'Your progress on this exercise will not be saved.', () => {
         this._clearCountdown();
+        voicePlayer.stop();
         this.player.destroy();
         this.navigate('home');
       });
       return;
     }
     this._clearCountdown();
+    voicePlayer.stop();
     this.player.destroy();
     this.navigate('home');
   }
@@ -1784,6 +1866,16 @@ class SteadyApp {
       reminderTimeRow.style.display = settings.reminderEnabled ? 'flex' : 'none';
     }
 
+    // Voice settings
+    const voiceEl = document.getElementById('setting-voice');
+    const voiceIdEl = document.getElementById('setting-voice-id');
+    const voiceSelectRow = document.getElementById('voice-select-row');
+    if (voiceEl) voiceEl.checked = settings.voiceEnabled !== false;
+    if (voiceIdEl) voiceIdEl.value = settings.voiceId || 'john';
+    if (voiceSelectRow) {
+      voiceSelectRow.style.display = (settings.voiceEnabled !== false) ? 'flex' : 'none';
+    }
+
     // Theme selector
     document.querySelectorAll('.theme-option').forEach(btn => {
       btn.classList.toggle('active', btn.dataset.theme === settings.theme);
@@ -1801,6 +1893,22 @@ class SteadyApp {
       const row = document.getElementById('reminder-time-row');
       if (row) row.style.display = value ? 'flex' : 'none';
       if (value) this.setupReminder();
+    }
+    if (key === 'voiceEnabled') {
+      voicePlayer.setEnabled(value);
+      // Show/hide voice selector row
+      const voiceSelectRow = document.getElementById('voice-select-row');
+      if (voiceSelectRow) voiceSelectRow.style.display = value ? 'flex' : 'none';
+      // Sync the player toggle button icon
+      const onIcon = document.getElementById('voice-on-icon');
+      const offIcon = document.getElementById('voice-off-icon');
+      const btn = document.getElementById('voice-toggle-btn');
+      if (onIcon) onIcon.style.display = value ? 'block' : 'none';
+      if (offIcon) offIcon.style.display = value ? 'none' : 'block';
+      if (btn) btn.classList.toggle('voice-off', !value);
+    }
+    if (key === 'voiceId') {
+      voicePlayer.setVoice(value);
     }
   }
 

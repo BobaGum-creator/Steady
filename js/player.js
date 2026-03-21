@@ -272,14 +272,15 @@ class ExercisePlayer {
 
     const steps = this.resolvedSteps || this.currentExercise.steps;
 
-    // Check if exercise time is up
-    if (this.totalElapsed >= this.currentExercise.duration) {
+    // Check if we've gone through all steps — always complete
+    if (this.currentStepIndex >= steps.length) {
       this.completeExercise();
       return;
     }
 
-    // Check if we've gone through all steps
-    if (this.currentStepIndex >= steps.length) {
+    // Check if exercise time is up AND no more steps remain
+    // (never cut off remaining steps mid-sequence)
+    if (this.totalElapsed >= this.currentExercise.duration) {
       this.completeExercise();
       return;
     }
@@ -396,8 +397,10 @@ class ExercisePlayer {
           remaining: Math.max(0, this.currentExercise.duration - this.totalElapsed),
         });
 
-        // Auto-complete when duration reached
-        if (this.totalElapsed >= this.currentExercise.duration) {
+        // Auto-complete when duration reached — but never mid-step.
+        // If a step is actively running, let it finish naturally via advanceStep().
+        // Only force-complete here if no step timer is active (e.g. between steps).
+        if (this.totalElapsed >= this.currentExercise.duration && !this.stepTimer) {
           this.completeExercise();
         }
       }

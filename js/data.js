@@ -340,7 +340,7 @@ export const exercises = [
     briefing: 'Practice tolerating mild discomfort. You\'ll hold your breath for increasing lengths while staying relaxed. The discomfort always passes.',
     category: 'breathwork',
     mode: 'challenge',
-    duration: 90,
+    duration: 102,
     signals: ['breath', 'body', 'pressure'],
     evidence: 'moderate',
     steps: [
